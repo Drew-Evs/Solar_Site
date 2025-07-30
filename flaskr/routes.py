@@ -1,19 +1,22 @@
 from flask import Blueprint, render_template, request, session, url_for
+from .models import PanelInfo
 
-db = Blueprint('routes', __name__)
+bp = Blueprint('routes', __name__)
 
-@db.route('/')
+@bp.route('/')
 def dashboard():
     return render_template('dashboard.html')
 
-@db.route('/cell')
+@bp.route('/cell')
 def cell():
-    return render_template('cell_page.html')
+    panels = PanelInfo.query.with_entities(PanelInfo.panel_name).distinct().all()
+    panel_names = [p.panel_name for p in panels]
+    return render_template('cell_page.html', panel_names=panel_names)
 
-@db.route('/panel')
+@bp.route('/panel')
 def panel():
     return render_template('panel_page.html')
 
-@db.route('/string')
+@bp.route('/string')
 def string():
     return render_template('string_page.html')

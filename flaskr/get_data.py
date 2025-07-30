@@ -3,6 +3,8 @@ import numpy as np
 import pandas as pd
 import os
 import difflib
+from flaskr.models import PanelInfo
+from . import db
 
 def create_csv_entry(panel_name):
     cec_modules = pvlib.pvsystem.retrieve_sam('CECMod')
@@ -117,33 +119,19 @@ def library_conditions(panel_name, G, T):
 
 #builds a database of panels at standard conditions
 def build_database_mod():
+    from flaskr import create_app
+    app = create_app()
+
     cec_modules = pvlib.pvsystem.retrieve_sam('CECMod')
 
     records = []
 
-    try:         
-        for name in cec_modules:
+    with app.app_context():
+        try:         
+            for name in cec_modules:
                 module = cec_modules[name]
-                Iph, Is, Rs, Rp, nNsVth = pvlib.pvsystem.calcparams_desoto(
-                    effective_irradiance = 950,
-                    temp_cell = 25,
-                    alpha_sc=module['alpha_sc'],
-                    a_ref=module['a_ref'],
-                    I_L_ref=module['I_L_ref'],
-                    I_o_ref=module['I_o_ref'],
-                    R_sh_ref=module['R_sh_ref'],
-                    R_s=module['R_s'],
-                    EgRef=1.121,
-                    dEgdT=-0.0002677
-                )
 
-                #use nNsVth to estimate ideality
-                k = 1.380649e-23
-                q = 1.602e-19
-                T_K = 25 + 273.15
-                Vth = k * T_K / q
                 Ns = module['N_s']
-                n = nNsVth / (Ns * Vth)
 
                 # Try to get height and width if they exist
                 length = module.get('Length', None)  # in mm
@@ -151,15 +139,20 @@ def build_database_mod():
 
                 Nd = max(1, Ns//20)
 
-                records.append([name, Iph, Is, n, Rs, Rp, Ns, Nd, length, width])
+                new_record = PanelInfo(
+                    panel_name=name,
+                    length=length,
+                    width=width,
+                    num_cells=Ns,
+                    num_diodes=Nd
+                )
+                db.session.add(new_record)
                 print(f"Successfully saved data for {name}")
 
-        df = pd.DataFrame(records, columns=['name', 'Iph', 'Is', 'n', 'Rs', 'Rp', 'Ns', 'Nd', 'L(m)', 'W(m)'])
+            db.session.commit()
 
-        df.to_csv('Panel_Databsase.csv', index=False)
-
-    except Exception as e:
-        print(f'Failed because of {e}')
+        except Exception as e:
+            print(f'Failed because of {e}')
 
 
 #uses the input dc and the inverter name to test output power
@@ -218,4 +211,8 @@ def build_database_inverter():
     
 def build_database():
     build_database_inverter()
+    build_database_mod()
+
+
+if __name__ == "__main__":
     build_database_mod()

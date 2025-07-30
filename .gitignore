@@ -19,5 +19,3 @@ env/
 .DS_Store
 Thumbs.db
 
-# Flask instance folder (if using)
-instance/

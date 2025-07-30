@@ -5,15 +5,14 @@ import math
 from functools import lru_cache
 import numpy as np
 from scipy.optimize import fsolve
+from flaskr.models import CellData
+from flaskr import db
 
 #models the individual solar cells
 class Solar_Cell():
     #constructor matching material of a cell to its ideal conditions
-    def __init__(self, initial_conditions, panel_name, shadow, temp, 
-        c_hash_db):
+    def __init__(self, initial_conditions, panel_name, shadow, temp):
         try:
-            self.hash_db = c_hash_db
-
             #an array containing conditions given 25 degrees and 950 irradiance
             self.panel_name = panel_name
             self.ACTUAL_CONDITIONS = [0,0,0,0,0,0,0]
@@ -30,8 +29,22 @@ class Solar_Cell():
 
     #using caching to store sets of values based on heat/irradiance
     @lru_cache(maxsize=20000)
-    def _lookup(self, key):
-        return self.hash_db.get(key, math.nan)
+    def _lookup(self, *key):
+        G, T = key
+
+        #query the model
+        record = CellData.query.filter_by(
+            panel_name = self.panel_name,
+            temperature = T,
+            irradiance = G
+        ).first() 
+
+        if record:
+            #return the saved conditions
+            return record.iph, record.isat, record.n, record.Rs, record.Rp
+
+        #if no conditions
+        return math.nan
 
     #takes an input of a shade level and returns the correct irradiance
     def set_shade(self, irr):
@@ -86,19 +99,43 @@ class Solar_Cell():
 
     #finds params then outputs ISC
     def find_short_circuit(self):
-        Iph, Is, n, Rs, Rp, Kt = self.get_params()
-        c_val = self.find_hash_isc(Iph, Is, n, Rs, Rp, Kt)
-
-        if not math.isnan(c_val):
-            return c_val
-        else:
-            I = self.find_current(0)
-            self.save_hash_isc(I, Iph, Is, n, Rs, Rp, Kt)
-            return I
+        return self.find_current(0)
     
     #outputs Voc
     def find_open_voltage(self):
         return self.find_voltage(0)
+
+    #finds both if not in db
+    def find_isc_voc(self):
+        T = self.ACTUAL_CONDITIONS[5]
+        G = self.ACTUAL_CONDITIONS[6]
+        record = CellData.query.filter_by(
+            panel_name = self.panel_name,
+            temperature = T,
+            irradiance = G
+        ).first() 
+
+        #if the record is found 
+        if record:
+            if record.voc is None:
+                voc = self.find_open_voltage()
+                record.voc = voc
+            else:
+                voc = record.voc
+
+            if record.isc is None:
+                isc = self.find_short_circuit()
+                record.isc = isc
+            else:
+                isc = record.isc
+
+            db.session.commit()
+
+            return voc, isc
+        
+        #if record not in the database need to calculate params and set
+        self.set_library_conditions()
+        return self.find_isc_voc()
 
     #uses the voltage to find the max power
     #can set to true to output a graph
@@ -115,12 +152,32 @@ class Solar_Cell():
         Imp = currents[power_index]
 
         if draw_graph:
-            hp.draw_graph(powers, voltages, currents, 'cell', self.panel_name)
+            hp.draw_graph(powers, voltages, currents, 'Cell', self.panel_name)
 
         self.volts = Vmp
         self.current = Imp
 
-        return Pmax, Vmp, Imp
+        T = self.ACTUAL_CONDITIONS[5]
+        G = self.ACTUAL_CONDITIONS[6]
+        record = CellData.query.filter_by(
+            panel_name = self.panel_name,
+            temperature = T,
+            irradiance = G
+        ).first() 
+
+        if record:
+            if record.pmax is None:
+                record.pmax = Pmax
+                record.vmp = Vmp
+                record.imp = Imp
+
+            db.session.commit()
+
+            return Pmax, Vmp, Imp
+
+        else: 
+            self.set_library_conditions()
+            return self.model_power(draw_graph)
 
     def get_params(self):
         Iph = self.ACTUAL_CONDITIONS[0]
@@ -139,8 +196,10 @@ class Solar_Cell():
         #test if instance of tuple to look for cache hit
         values = self.find_hash_c(G, T)
         if isinstance(values, tuple):
+            print("Found in db")
             Iph, Is, n, Rs, Rp = values
         else:
+            print("Not found checking library")
             Iph, Is, n, Rs, Rp = library_conditions(self.panel_name, G, T)
             self.save_hash_c(G, T, Iph, Is, n, Rs, Rp)
 
@@ -156,27 +215,23 @@ class Solar_Cell():
 
     #saving cell conditions to hash table
     def save_hash_c(self, G, T, Iph, Is, n, Rs, Rp):
-        value = (Iph, Is, n, Rs, Rp)
-        key = self._key_from_floats(G, T)
-        with shelve.open(f'flaskr/cell_hash_tables/{self.panel_name}', flag='c') as db:
-            db[key] = value
-            self._lookup.cache_clear()
+        new_record = CellData(
+            panel_name=self.panel_name,
+            irradiance=G,
+            temperature=T,
+            iph=Iph,
+            isat=Is,
+            n=n,
+            Rs=Rs,
+            Rp=Rp
+        )
+        db.session.add(new_record)
+        db.session.commit()
 
     #finding the hash conditions
-    def find_hash_c(self, G, T):
-        key = self._key_from_floats(G, T)
-        return self._lookup(key)
+    def find_hash_c(self, *key):
+        return self._lookup(*key)
 
-    def save_hash_isc(self, I, Iph, Is, n, Rs, Rp, T):
-        key = self._key_from_floats(T, Iph, Is, n, Rs, Rp)
-        value = I
-        self.hash_db[key] = value
-        self._lookup_isc.cache_clear()
-
-    def find_hash_isc(self, Iph, Is, n, Rs, Rp, T):
-        key = self._key_from_floats(T, Iph, Is, n, Rs, Rp)
-        return self._lookup_isc(key)
-    
 #models a series of solar cells connected to a bypass diode
 class Simple_Module():
     def __init__(self, initial_conditions, panel_name, cell_count, rows):

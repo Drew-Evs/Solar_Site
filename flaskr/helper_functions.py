@@ -121,7 +121,7 @@ def draw_graph(powers, voltages, currents, type, panel_name):
     plt.plot(voltages, powers, label='Power vs Voltage', color='blue')
     plt.xlabel('Voltage (V)')
     plt.ylabel('Power (W)')
-    plt.title('String Power vs Voltage')
+    plt.title(f'{type} Power vs Voltage')
     plt.grid(True)
     plt.legend()
     plt.tight_layout()
@@ -136,7 +136,7 @@ def draw_graph(powers, voltages, currents, type, panel_name):
     plt.plot(currents, powers, label='Power vs Current', color='green')
     plt.xlabel('Current (A)')
     plt.ylabel('Power (W)')
-    plt.title('String Power vs Current')
+    plt.title(f'{type} Power vs Current')
     plt.grid(True)
     plt.legend()
     plt.tight_layout()
@@ -151,7 +151,7 @@ def draw_graph(powers, voltages, currents, type, panel_name):
     plt.plot(currents, voltages, label='Voltage vs Current', color='red')
     plt.xlabel('Current (A)')
     plt.ylabel('Power (W)')
-    plt.title('String Voltage vs Current')
+    plt.title(f'{type} Voltage vs Current')
     plt.grid(True)
     plt.legend()
     plt.tight_layout()
@@ -174,7 +174,7 @@ def create_hash_c(panel_name):
     hash_filename = str(folder / panel_lookup)
 
     #initiate db
-    c_hash_db = shelve.open(hash_filename, flag="r", protocol=None, writeback=False)
+    c_hash_db = shelve.open(hash_filename, flag="c", protocol=None, writeback=False)
     return c_hash_db
 
 #opens a similar hash table for short circuits
@@ -190,3 +190,10 @@ def create_hash_isc(panel_name):
     #initiate db
     isc_hash_db = shelve.open(hash_filename, flag="c", protocol=None, writeback=False)
     return isc_hash_db
+
+#a helper function to round to 3sf
+def round_sf(x, sig=3):
+    if x == 0:
+        return 0
+    from math import log10, floor
+    return round(x, sig - int(floor(log10(abs(x)))) - 1)

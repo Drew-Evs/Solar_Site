@@ -3,17 +3,87 @@
 {% block title %}Cell Page{% endblock %}
 
 {% block content %}
-  <h1>Cell Model</h1>
 
-  <form method="POST" action="{{ url_for('cell_info.generate_cell_graphs') }}">
-  <button type="submit">Generate Graphs</button>
-</form>
+<h1>Cell Model</h1>
 
-{% if graphs %}
-  <div class="graphs">
-    {% for graph in graphs %}
-      <img src="{{ url_for('static', filename=graph.split('static/')[-1]) }}" alt="Graph">
-    {% endfor %}
+<form method="POST" action="{{ url_for('cell_info.generate_cell_graphs') }}">
+  <div class="input-container">
+    <label fo="panel-select">Select Panel:</label>
+    <input list="panels" id="panel-input" name="panel_name" autocomplete="off" value="{{ panel_name or '' }}"/>
+
+    <datalist id="panels">
+      {% for name in panel_names %}
+        <option value="{{ name }}"></option>
+      {% endfor %}
+    </datalist>
   </div>
-{% endif %}
+
+<div class="cell-wrapper">
+  <div class="c-out-graph-wrapper">
+    {% if graphs %}
+      <div class="graphs">
+        {% for graph in graphs %}
+          <img src="{{ url_for('static', filename=graph.split('static/')[-1]) }}" alt="Graph">
+        {% endfor %}
+      </div>
+    {% endif %}
+
+    {% if iph is defined and iph %}
+      <table class="styled-table">
+        <tr>
+          <td>Voc</td>
+          <td>Isc</td>
+          <td>Vmp</td>
+          <td>Imp</td>
+          <td>Pmax</td>
+        </tr>
+        <tr>
+          <td>{{ voc or ' ' }}</td>
+          <td>{{ isc or ' ' }}</td>
+          <td>{{ vmp or ' ' }}</td>
+          <td>{{ imp or ' ' }}</td>
+          <td>{{ pmax or ' ' }}</td>
+        </tr>
+      </table>
+    {% endif %}
+  </div>
+
+  <div class="c-input-table-wrapper">
+    <div class="input-wrapper">
+      <div class="input-container">
+        <label for="temp">Temperature (0-70)</label>
+        <input type="number" id="temp" name="temperature" min="0" max="70" step="1" value="{{ temperature or 25 }}">
+      </div>
+
+      <div class="input-container">
+        <label for="irr">Irradiance (0-1000)</label>
+        <input type="number" id="irr" name="irradiance" min="0" max="1000" step="10" value="{{ irradiance or 950 }}">
+      </div>
+    </div>
+
+    {% if iph is defined and iph %}
+      <table class="styled-table">
+        <tr>
+          <td>Iph</td>
+          <td>Is</td>
+          <td>n</td>
+          <td>Rs</td>
+          <td>Rp</td>
+        </tr>
+        <tr>
+          <td>{{ iph or ' ' }}</td>
+          <td>{{ isat or ' ' }}</td>
+          <td>{{ n or ' ' }}</td>
+          <td>{{ rs or ' ' }}</td>
+          <td>{{ rp or ' ' }}</td>
+        </tr>
+      </table>
+    {% endif %}
+  </div>
+</div>
+
+<div class="input-container">
+    <button type="submit">Generate Graphs</button>
+</form>
+</div>
 {% endblock %}

@@ -1,15 +1,19 @@
 import os
 
 from flask import Flask
+from flask_sqlalchemy import SQLAlchemy
+
+db = SQLAlchemy()
 
 #creates the app
 def create_app(test_config=None):
     #creates then configures
     app = Flask(__name__, instance_relative_config=True)
-    app.config.from_mapping(
-        SECRET_KEY='dev',
-        DATABASE=os.path.join(app.instance_path, 'flaskr.sqlite'),
-    )
+
+    app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///database.db'
+    app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
+    db.init_app(app)
 
     if test_config is None:
         app.config.from_pyfile('config.py', silent=True)
@@ -23,8 +27,11 @@ def create_app(test_config=None):
     except OSError:
         pass
 
-    from . import routes
-    app.register_blueprint(routes.db)
+    from . import routes, models
+    app.register_blueprint(routes.bp)
+
+    with app.app_context():
+        db.create_all()
 
     from . import cell_info
     app.register_blueprint(cell_info.ci)
