@@ -1,0 +1,11 @@
+difflib
+numpy
+pandas
+pvlib
+matplotlib
+numpy
+scipy
+pytz
+shelve
+Flask
+Flask-SQLAlchemy
