@@ -3,6 +3,95 @@
 {% block title %}String Page{% endblock %}
 
 {% block content %}
+<form method="POST" action="/upload" enctype="multipart/form-data">
   <h1>String Model</h1>
-  <p>This is a placeholder for string content.</p>
+
+  <label for="file">Choose File:</label>
+  <input type="file" id="file" name="file" accept="image/*">
+
+  <button type="submit">Upload</button>
+</form>
+
+<form method="POST" action="/shadow_file">
+
+</form>
+
+<form method="POST" action="/build_string">
+  <div class="input-container">
+    <label for="panel-select">Select Panel:</label>
+    <input list="panels" id="panel-input" name="panel_name" autocomplete="off" value="{{ panel_name or '' }}"/>
+
+    <datalist id="panels">
+      {% for name in panel_names %}
+        <option value="{{ name }}"></option>
+      {% endfor %}
+    </datalist>
+  </div>
+
+  <div class="input-wrapper">
+    <div class="input-container">
+        <label for="count">Number of Panels (1-56)</label>
+        <input type="number" id="pan-count" name="panel_count" min="1" max="56" step="1" value="{{ panel_count or 28 }}">
+    </div>
+
+    <div class="input-container">
+        <label for="rotate">Rotation (0, 90, 180, 270)</label>
+        <input type="number" id="rotation" name="rotation" min="0" max="270" step="90" value="{{ rotation or 0 }}">
+    </div>
+  </div>
+
+  <p>Top Left Coordinate of String</p>
+
+  <div class="coord-wrapper">
+    <label for="X">X (0-500)</label>
+    <input type="number" id="X" name="X" min="0" max="500" step="1" value="{{ X or 0 }}">
+    <label for="Y">Y (0-500)</label>
+    <input type="number" id="Y" name="Y" min="0" max="500" step="1" value="{{ Y or 0 }}">
+  </div>
+  
+  <!-- <label for="file">Choose File:</label>
+  <input type="file" id="file" name="file" accept="image/*"> -->
+
+  <button type="submit">Build String</button>
+</form>
+
+<form method="POST" action="/get_environment_data">
+  <button type="submit">Get Environment Data</button>
+</form>
+
+<form method="POST" action="/model_power">
+  <div class="input-wrapper">
+    <div class="input-container">
+      <label for="start">Select Start Date:</label>
+      <input type="date" id="start" name="start", step="3600">
+    </div>
+
+    <div class="input-container">
+      <label for="end">Select End Date:</label>
+      <input type="date" id="end" name="end", step="3600">    
+    </div>
+
+    <div class="input-container">
+      <label for="timestep">Timestep:</label>
+      <input type="number" id="timestep" name="timestep" min="1" required>
+    </div>
+
+    <div class="input-container">
+      <label for="unit">Unit:</label>
+      <select id="unit" name="unit" required>
+        <option value="seconds">Seconds</option>
+        <option value="minutes">Minutes</option>
+        <option value="hours" selected>Hours</option>
+        <option value="days">Days</option>
+      </select>
+      </div>
+  </div>
+</form>
+
+{% if uploaded %}
+  <div class="field"> 
+    <img src="{{ url_for('static', filename=image.split('static/')[-1]) }}" alt="Map">
+  </div>
+{% endif %}
+
 {% endblock %}

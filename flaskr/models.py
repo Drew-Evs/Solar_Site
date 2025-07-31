@@ -30,3 +30,14 @@ class PanelInfo(db.Model):
     num_cells = db.Column(db.Integer)
     num_diodes = db.Column(db.Integer)
 
+
+class EnvironmentalData(db.Model):
+    __tablename__ = 'envir_info'
+
+    id = db.Column(db.Integer, primary_key=True)
+    date = db.Column(db.DateTime)
+    hour = db.Column(db.Integer)
+    longitude = db.Column(db.Float)
+    latitude = db.Column(db.Float)
+    temperature = db.Column(db.Float)
+    irradiance = db.Column(db.Float)

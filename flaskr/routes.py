@@ -15,8 +15,12 @@ def cell():
 
 @bp.route('/panel')
 def panel():
-    return render_template('panel_page.html')
+    panels = PanelInfo.query.with_entities(PanelInfo.panel_name).distinct().all()
+    panel_names = [p.panel_name for p in panels]
+    return render_template('panel_page.html', panel_names=panel_names, num_rows=0)
 
 @bp.route('/string')
 def string():
-    return render_template('string_page.html')
+    panels = PanelInfo.query.with_entities(PanelInfo.panel_name).distinct().all()
+    panel_names = [p.panel_name for p in panels]
+    return render_template('string_page.html', panel_names=panel_names)

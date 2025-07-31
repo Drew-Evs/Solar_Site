@@ -5,7 +5,7 @@ import math
 from functools import lru_cache
 import numpy as np
 from scipy.optimize import fsolve
-from flaskr.models import CellData
+from flaskr.models import CellData, PanelInfo
 from flaskr import db
 
 #models the individual solar cells
@@ -25,7 +25,7 @@ class Solar_Cell():
                 self.set_library_conditions()
 
         except Exception as e:
-            print("Material doesn't exist: ", e)
+            print("Error constructing cell: ", e)
 
     #using caching to store sets of values based on heat/irradiance
     @lru_cache(maxsize=20000)
@@ -258,7 +258,7 @@ class Simple_Module():
                 for i in range(self.rows):
                     temp = []
                     for j in range(self.cell_count//rows):
-                        cell = Solar_Cell(initial_conditions, panel_name, ann_arr, None, material, "no shadow", temperature, self.cell_count)
+                        cell = Solar_Cell(initial_conditions, panel_name, 950, 25)
                         self.cell_list.append(cell)
                         temp.append(cell)
                     self.cell_array.append(temp)
@@ -484,7 +484,7 @@ class Panel():
 
         self.module_list = []
         for i in range(module_count):
-            module = Simple_Module(initial_conditions, panel_name, ann_arr, cell_per_module, row_per_module, material, temperature)
+            module = Simple_Module(initial_conditions, panel_name, cell_per_module, row_per_module)
             self.module_list.append(module)
 
         #need to initiate after module list created
@@ -612,24 +612,27 @@ class Panel():
 #models a string as a series of panels
 class Solar_String():
     #constructs the solar string
-    def __init__(self, panel_name, left_top_point, rotation=0, num_panels=25):
+    def __init__(self, panel_name, left_top_point, length=None, width=None, rotation=0, num_panels=25):
         try:
             self.left_top_point = left_top_point
 
-            #also need number of modules per panel and number of cells
-            df = pd.read_csv('Panel_Databsase.csv')
-            panel_data = df[df['name'] == panel_name]
-            #test if csv empty
-            if panel_data.empty:
-                raise Exception("Panel data not found in CSV")
+            #search db for info
+            record = PanelInfo.query.filter_by(
+                panel_name=panel_name
+            ).first()
 
-            Ns = panel_data['Ns'].values[0]
-            Nd = panel_data['Nd'].values[0]
-            Ns = int(Ns)
-            Nd = int(Nd)
+            if record:
+                Ns = record.num_cells
+                Nd = record.num_diodes
+                l = record.length
+                w = record.width
 
-            l = panel_data['L(m)'].values[0]
-            w = panel_data['W(m)'].values[0]
+            if l is None or w is None:
+                l = length
+                w = width
+                record.length = length
+                record.width = width
+                db.session.commit()
 
             self.length = float(l)
             self.width = float(w)
@@ -637,7 +640,6 @@ class Solar_String():
             self.rotation = rotation
 
             self.num_panels = num_panels
-            self.inverter_name = inverter_name
 
             #calculate the total num of rows (typically 6 in a row)
             num_rows = Ns//6
@@ -665,21 +667,20 @@ class Solar_String():
 
                 print(f"Panel {i} initiated")
 
-            #opens the hash table for updating cells
-            self.create_hash_c()
-            self.create_hash_isc()
-            for panel in self.panel_list:
-                panel.set_db_c(self.c_hash_db, self.isc_hash_db)
+            # #opens the hash table for updating cells
+            # self.create_hash_c()
+            # self.create_hash_isc()
+            # for panel in self.panel_list:
+            #     panel.set_db_c(self.c_hash_db, self.isc_hash_db)
 
-            #and for voltage
-            self.create_hash_v()
-            for panel in self.panel_list:
-                panel.set_db(self.v_hash_db)
-                panel.set_short_circuits()
+            # #and for voltage
+            # self.create_hash_v()
+            # for panel in self.panel_list:
+            #     panel.set_db(self.v_hash_db)
+            #     panel.set_short_circuits()
 
         except Exception as e:
             print(f'Cant build that solar panel missing data - {e}')
-            traceback.print_exc()
 
     #get max iph from each panel to calculate own max iph
     def get_max_iph(self):

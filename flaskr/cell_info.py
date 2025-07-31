@@ -19,8 +19,8 @@ def generate_cell_graphs():
         if request.method == 'POST':
             cell = Solar_Cell(initial_conditions=None, panel_name=panel_name,
                 shadow=irr, temp=temp)
-            Pmax, Vmp, Imp = [round(x, 2) for x in cell.model_power(True)]
-            Voc, Isc = [round(x, 2) for x in cell.find_isc_voc()]
+            Pmax, Vmp, Imp = [hp.round_sf(x, 3) for x in cell.model_power(True)]
+            Voc, Isc = [hp.round_sf(x, 3) for x in cell.find_isc_voc()]
             Iph, Is, n, Rs, Rp, Kt = [hp.round_sf(x, 3) for x in cell.get_params()]
 
         #finds path relative to panel name
