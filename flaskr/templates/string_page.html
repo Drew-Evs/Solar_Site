@@ -3,20 +3,23 @@
 {% block title %}String Page{% endblock %}
 
 {% block content %}
-<form method="POST" action="/upload" enctype="multipart/form-data">
+
+<script src="{{ url_for('static', filename='javascript/string_model.js')}}"></script>
+
+<form id="imageForm">
   <h1>String Model</h1>
 
   <label for="file">Choose File:</label>
   <input type="file" id="file" name="file" accept="image/*">
 
-  <button type="submit">Upload</button>
+  <button type="button" onclick="uploadImage()">Upload</button>
 </form>
 
 <form method="POST" action="/shadow_file">
 
 </form>
 
-<form method="POST" action="/build_string">
+<form id="stringForm">
   <div class="input-container">
     <label for="panel-select">Select Panel:</label>
     <input list="panels" id="panel-input" name="panel_name" autocomplete="off" value="{{ panel_name or '' }}"/>
@@ -43,55 +46,66 @@
   <p>Top Left Coordinate of String</p>
 
   <div class="coord-wrapper">
-    <label for="X">X (0-500)</label>
-    <input type="number" id="X" name="X" min="0" max="500" step="1" value="{{ X or 0 }}">
-    <label for="Y">Y (0-500)</label>
-    <input type="number" id="Y" name="Y" min="0" max="500" step="1" value="{{ Y or 0 }}">
+    <label for="X">X (0-1000)</label>
+    <input type="number" id="X" name="X" min="0" max="1000" step="1" value="{{ X or 0 }}">
+    <label for="Y">Y (0-1000)</label>
+    <input type="number" id="Y" name="Y" min="0" max="1000" step="1" value="{{ Y or 0 }}">
   </div>
-  
-  <!-- <label for="file">Choose File:</label>
-  <input type="file" id="file" name="file" accept="image/*"> -->
 
-  <button type="submit">Build String</button>
+  <button type="button" onclick="submitBuildString()">Build String</button>
 </form>
 
 <form method="POST" action="/get_environment_data">
   <button type="submit">Get Environment Data</button>
 </form>
 
-<form method="POST" action="/model_power">
+<form id="eForm">
   <div class="input-wrapper">
     <div class="input-container">
       <label for="start">Select Start Date:</label>
-      <input type="date" id="start" name="start", step="3600">
+      <input type="date" id="start" name="start", step="1">
     </div>
 
     <div class="input-container">
       <label for="end">Select End Date:</label>
-      <input type="date" id="end" name="end", step="3600">    
+      <input type="date" id="end" name="end", step="1">    
     </div>
 
     <div class="input-container">
       <label for="timestep">Timestep:</label>
-      <input type="number" id="timestep" name="timestep" min="1" required>
+      <input type="number" id="timestep" name="timestep" min="1">
     </div>
 
     <div class="input-container">
       <label for="unit">Unit:</label>
       <select id="unit" name="unit" required>
-        <option value="seconds">Seconds</option>
         <option value="minutes">Minutes</option>
         <option value="hours" selected>Hours</option>
         <option value="days">Days</option>
       </select>
-      </div>
+    </div>
+
+    <div class="coord-wrapper">
+      <label for="lon">X (-180-180)</label>
+      <input type="number" id="lon" name="lon" min="-180" max="180" step="0.1" value="{{ lon or 0 }}">
+      <label for="lat">Latitude (-90-90)</label>
+      <input type="number" id="lat" name="lat" min="-90" max="90" step="0.1" value="{{ lat or 0 }}">
+    </div>
+
+    <label for="pfile">Choose File:</label>
+    <input type="file" id="pfile" name="pfile" accept=".csv">
+
+    <button type="button", onclick="buildEData()">Model Power Over Time</button>
   </div>
 </form>
 
-{% if uploaded %}
-  <div class="field"> 
-    <img src="{{ url_for('static', filename=image.split('static/')[-1]) }}" alt="Map">
-  </div>
+<div class="field"> 
+  <img id="img-preview" alt="Map" style="display:none;">
+</div>
+
+
+{% if error %}
+  <p style="color: red;">{{ error }}</p>
 {% endif %}
 
 {% endblock %}

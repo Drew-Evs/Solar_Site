@@ -9,6 +9,7 @@ import shelve
 from .models import EnvironmentalData
 from flask import current_app
 from . import db
+from timezonefinder import TimezoneFinder
 
 #use pvlib to find irradiance and temperature of longitude and latitude for a day
 def get_info(start, end, lat, long):
@@ -89,8 +90,10 @@ def interpolate_df(df, timestep=10):
     return full_df
 
 #store information into a csv file
-def create_edatabase(start, lat, lon):
-    end = start + timedelta(hours=24)
+def create_edatabase(start, end, lat, lon):
+    if end is None:
+        end = start + timedelta(hours=24)
+        
     df = get_info(start, end, lat, lon)
     filtered = adjust_df(df)
     
@@ -98,7 +101,7 @@ def create_edatabase(start, lat, lon):
     with current_app.app_context():
         for i, (index, row) in enumerate(filtered.iterrows()):
             exists = EnvironmentalData.query.filter_by(
-                date=index,
+                date=index.replace(year=2025),
                 latitude=lat,
                 longitude=lon
             ).first()
@@ -245,13 +248,13 @@ def get_cell_pixel_pos(string, row, col):
         x = base_x + col * cell_w
         y = base_y - row * cell_h
     elif rotation == 90:
-        x = base_x - row * cell_h
+        x = base_x + row * cell_h
         y = base_y + col * cell_w
     elif rotation == 180:
         x = base_x - col * cell_w
         y = base_y + row * cell_h
     elif rotation == 270:
-        x = base_x + row * cell_h
+        x = base_x - row * cell_h
         y = base_y - col * cell_w
     else:
         raise ValueError("Not valid rotation value")
@@ -288,3 +291,29 @@ def file_pixel_dict(filename, start_date, end_date):
         time += timedelta(minutes=30)
     
     return pixel_dict
+
+def get_timezone(lat, lon):
+    tf = TimezoneFinder()
+    timezone_str = tf.timezone_at(lat=lat, lng=lon)
+    return timezone_str
+
+#interpolate change in temp/irradiance
+#if timestep between hours
+def interpolate(timestep, temp_change, irr_change, start, end,
+        start_temp, start_irr):
+    #stores the result in a dict
+    t_per_step = (temp_change) * (60/timestep)
+    i_per_step = (irr_change) * (60/timestep)
+    time = start
+
+    results = {}
+    i = 0
+
+    #iterates through each time
+    while time < end:
+        results[time] = (start_temp + t_per_step*i, start_irr + i_per_step*i)
+        i += 1
+
+    return results
+
+        

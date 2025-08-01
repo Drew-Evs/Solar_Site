@@ -8,3 +8,4 @@ pytz
 Flask
 Flask-SQLAlchemy
 Pillow
+timezonefinder
