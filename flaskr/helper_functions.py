@@ -1,4 +1,5 @@
 import pvlib
+from pvlib.location import Location
 from datetime import datetime, timedelta
 import pytz
 from pathlib import Path
@@ -10,6 +11,7 @@ from .models import EnvironmentalData
 from flask import current_app
 from . import db
 from timezonefinder import TimezoneFinder
+import numpy as np
 
 #use pvlib to find irradiance and temperature of longitude and latitude for a day
 def get_info(start, end, lat, long):
@@ -273,7 +275,8 @@ def key_to_pixel(key):
     except Exception as e:
         print(f'Exception key is {key}\n')
 
-def file_pixel_dict(filename, start_date, end_date):
+def file_pixel_dict(filename, start_date, end_date, timestep):
+    d_format = "%d/%m/%Y %H:%M:%S"
     pixel_dict = {}
     time = start_date
 
@@ -288,9 +291,14 @@ def file_pixel_dict(filename, start_date, end_date):
 
         pixel_dict[datetime.strftime(time, d_format)] = pixel_arr
 
-        time += timedelta(minutes=30)
+        time += timestep
     
     return pixel_dict
+
+def get_times(filename): 
+    df = pd.read_csv(filename, parse_dates=["First Shadow Timestamp", "Last Shadow Timestamp"], dayfirst=True)
+
+    return df
 
 def get_timezone(lat, lon):
     tf = TimezoneFinder()
@@ -316,4 +324,53 @@ def interpolate(timestep, temp_change, irr_change, start, end,
 
     return results
 
+
+#using clearsky from pvlib to get more accurate conditions
+def get_irr(start_date, end_date, lat, lon, timestep, 
+        timestep_unit, timezone):
+    #define the location
+    site = Location(lat, lon, tz=timezone)
+
+    #get the time range 
+    times = pd.date_range(start=f'{start_date} 00:00', end=f'{end_date} 23:59',
+        freq=f'{timestep}{timestep_unit}', tz=timezone)
+
+    print(timezone)
+
+    #get the irradiance of the clearsky
+    clearsky = site.get_clearsky(times)
+
+    #synthetic temperature replace later with real temp
+    hours = times.hour + times.minute/60
+    ambient_temp = 20 + 10 * np.sin((hours-6)/24 * 2 * np.pi)
+
+    #use DNI (assume panels track the sun)
+    dni_info = clearsky["dni"]
+    
+    df = pd.DataFrame({
+        'dni': dni_info,
+        'temp': ambient_temp
+    })
+
+    return df
         
+def set_shade_at_time(time, panel_dict, file_dict):
+    time = time.strftime('%d/%m/%Y %H:%M:%S')
+    try:
+        pixels = file_dict[time]
+        for pixel in pixels:
+            cells = panel_dict[pixel]
+            for cell in cells:  
+                cell.set_shade(irr=100)
+    except Exception as e:
+        print(f'Failed due to {e} ')
+
+#given a certain time returns the pixels that are shaded at that time
+def get_shade_at_time(time, df):
+    d_format = "%d/%m/%Y %H:%M:%S"
+    in_range = df[
+        (df["First Shadow Timestamp"] <= time) &
+        (df["Last Shadow Timestamp"] >= time)
+    ]
+
+    return in_range

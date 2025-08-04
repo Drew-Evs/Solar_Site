@@ -19,6 +19,11 @@ class CellData(db.Model):
     imp = db.Column(db.Float, nullable=True)
     pmax = db.Column(db.Float, nullable=True)
 
+    __table_args__ = (
+        db.Index('idx_cell_lookup', 'panel_name', 'temperature', 'irradiance'),
+    )
+
+
 
 class PanelInfo(db.Model):
     __tablename__ = 'panel_info'
@@ -41,3 +46,24 @@ class EnvironmentalData(db.Model):
     latitude = db.Column(db.Float)
     temperature = db.Column(db.Float)
     irradiance = db.Column(db.Float)
+
+
+class ModuleData(db.Model):
+    __tablename__ = "module_data"
+
+    id = db.Column(db.Integer, primary_key=True)
+    kt = db.Column(db.Float, nullable=False)
+    iph = db.Column(db.Float, nullable=False)
+    isat = db.Column(db.Float, nullable=False)
+    n = db.Column(db.Float, nullable=False)
+    Rs = db.Column(db.Float, nullable=False)
+    Rp = db.Column(db.Float, nullable=False)
+
+    voltage = db.Column(db.Float, nullable=False)
+    current = db.Column(db.Float, nullable=False)
+
+    #indexing for speed
+    __table_args__ = (
+        db.Index('idx_voltage_lookup', 'kt', 'iph', 'isat', 'n', 'Rs', 'Rp', 'current'),
+    )
+

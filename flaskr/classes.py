@@ -5,8 +5,9 @@ import math
 from functools import lru_cache
 import numpy as np
 from scipy.optimize import fsolve
-from flaskr.models import CellData, PanelInfo
+from flaskr.models import CellData, PanelInfo, ModuleData
 from flaskr import db
+
 
 #models the individual solar cells
 class Solar_Cell():
@@ -159,6 +160,7 @@ class Solar_Cell():
 
         T = self.ACTUAL_CONDITIONS[5]
         G = self.ACTUAL_CONDITIONS[6]
+
         record = CellData.query.filter_by(
             panel_name = self.panel_name,
             temperature = T,
@@ -196,7 +198,7 @@ class Solar_Cell():
         #test if instance of tuple to look for cache hit
         values = self.find_hash_c(G, T)
         if isinstance(values, tuple):
-            print("Found in db")
+            #print("Found in db")
             Iph, Is, n, Rs, Rp = values
         else:
             print("Not found checking library")
@@ -243,8 +245,20 @@ class Simple_Module():
 
         #open caching for voltage
         @lru_cache(maxsize=20_000)
-        def _lookup(key):
-            return self.hash_db.get(key, math.nan)
+        def _lookup(I, Iph, Is, nC, Rs, Rp, Kt):
+            try:
+                record = ModuleData.query.filter_by(
+                    kt = Kt,
+                    iph = Iph,
+                    isat = Is,
+                    n = nC,
+                    Rs = Rs,
+                    Rp = Rp,
+                    current = I
+                ).first()
+                return record.voltage
+            except Exception as e:
+                return math.nan
         
         self._lookup = _lookup
 
@@ -283,7 +297,7 @@ class Simple_Module():
         return open_v
     
     #gets voltage given current and average parameters
-    def gets_voltage(self, I, values=None):
+    def get_voltage(self, I, values=None):
         if values is None:
             Iph, Is, nC, Rs, Rp, Kt = self.get_total_params()
         else:
@@ -389,15 +403,24 @@ class Simple_Module():
     #opens dictionary based on panel name to save the information
     #cache handles any misses (_lookup)
     def save_hash_v(self, current, Iph, Is, nC, Rs, Rp, Kt, voltage):
-        key = self._key_from_floats(current, Iph, Is, nC, Rs, Rp, Kt)
-        self.hash_db[key] = voltage
+        new_record = ModuleData(
+            kt=Kt,
+            iph=Iph,
+            isat=Is,
+            n=nC,
+            Rs=Rs,
+            Rp=Rp,
+            voltage=voltage,
+            current=current
+        )
+        db.session.add(new_record)
+        db.session.commit()
         #syncs the RAM and cache
         self._lookup.cache_clear()
 
     #tests if hash in dictionary already 
     def find_hash_v(self, current, Iph, Is, nC, Rs, Rp, Kt):
-        key = self._key_from_floats(current, Iph, Is, nC, Rs, Rp, Kt)
-        return self._lookup(key)
+        return self._lookup(current, Iph, Is, nC, Rs, Rp, Kt)
         
     #turn on the bypass diode
     def activate_bypass(self):
@@ -520,7 +543,13 @@ class Panel():
 
         return sum_v
 
-          #model the voltage and current against power
+        #store the total parameters per module in the dictionary
+    def store_dict(self, module, *values):
+        self.module_conditions[module] = values
+
+    def load_dict(self, module):
+        values = self.module_conditions[module]
+        return values
     
     #models currents against voltage to get max power
     def model_power(self, draw_graph=False):
@@ -695,7 +724,7 @@ class Solar_String():
     
     #calculate total voltage for the string given a current
     def get_voltage(self, I):
-        #print(f'Testing current {I}')
+        print(f'Testing current {I}')
         sum_v = 0
         for panel in self.panel_list:
             sum_v += panel.voltage_summation(I)
@@ -704,23 +733,27 @@ class Solar_String():
 
     #models power of the string
     def model_power(self, draw_graph=False):
-        max_I = self.get_max_iph()
-        currents = list(np.linspace(0, max_I, 40))
-        voltages = [self.get_voltage(I) for I in currents]
-        
-        results = [(i, v) for i, v in zip(currents, voltages)]
-        #need to unpack from results
-        powers = [v * i for i, v in results]    
+        try:
+            max_I = self.get_max_iph()
+            currents = list(np.linspace(0, max_I, 40))
+            voltages = [self.get_voltage(I) for I in currents]
+            
+            results = [(i, v) for i, v in zip(currents, voltages)]
+            #need to unpack from results
+            powers = [v * i for i, v in results]    
 
-        max_index = np.argmax(powers)
+            max_index = np.argmax(powers)
 
-        if draw_graph:
-            hp.draw_graph(powers, voltages, currents)
+            if draw_graph:
+                hp.draw_graph(powers, voltages, currents)
 
-        Pmax = powers[max_index]
-        Vmp = voltages[max_index]
-        Imp = currents[max_index]
-        return Pmax, Vmp, Imp
+            Pmax = powers[max_index]
+            Vmp = voltages[max_index]
+            Imp = currents[max_index]
+            return Pmax, Vmp, Imp
+        except Exception as e:
+            print(f'error in modelling power: {e}')
+            return 0, 0, 0
 
         #returns the four points of the solar string
     

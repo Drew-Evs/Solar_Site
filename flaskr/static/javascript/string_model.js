@@ -51,21 +51,95 @@ async function buildEData() {
     const form = document.getElementById('eForm')
     const formData = new FormData(form)
     const params = new URLSearchParams();
+    
+    //need to save shadow file first
+    const fileInput = document.getElementById("pfile");
+    const file = fileInput.files[0];
 
-    for (const [key, value] of formData.entries()) {
-        params.append(key, value)
+    if (!file) {
+        alert("Please select a file");
+        return;
     }
+
+    //then upload
+    const uploadData = new FormData();
+    uploadData.append("pfile", file);
+
+    const uploadResponse = await fetch("/save_shade_file", {
+        method: "POST",
+        body: uploadData
+    });
+
+    const uploadResult = await uploadResponse.json();
+
+    if (uploadResult.error) {
+        console.error("File upload failed:", uploadResult.error);
+        return;
+    }
+
+    //manually append shadow file
+    for (const [key, value] of formData.entries()) {
+        if (key != "pfile") {
+            params.append(key, value)
+        }
+    }
+
+    params.append("pfile", uploadResult.filename);
 
     const url = `/model_power?${params.toString()}`;
     const eventSource = new EventSource(url);
 
-    eventSource.onmessage = function(event) {
-        const data = JSON.parse(event.data);
-        console.log("Recieved:", data.time);
-    };
+    //queue messages to handle in order
+    const messageQueue = [];
 
+    let processing = false;
+
+    async function processQueue() {
+        //lock and key
+        if (processing) return;
+        processing = true;
+
+        while (messageQueue.length > 0) {
+            //pop off the queue
+            const event = messageQueue.shift();
+            await handleMessage(event);
+        }
+        processing = false;
+    }
+    
+    //queues events when theyre called
+    eventSource.onmessage = function(event) {
+        messageQueue.push(event);
+        processQueue();
+    };
+    
     eventSource.onerror = function(err) {
         console.error("SSE connection error:", err)
         eventSource.close();
     };
+
+    eventSource.addEventListener('close', function() {
+        source.close();
+        console.log("Stream closed.");
+    });
+}
+
+async function handleMessage(event) {
+    const data = JSON.parse(event.data);
+
+    const irrLabel = document.getElementById('irradiance-val');
+    irrLabel.innerHTML = `${data.e_info} W/m<sup>2</sup>`;
+    
+    const pLabel = document.getElementById('power-val');
+    pLabel.innerHTML = `${data.pmax} W`;
+
+    const tLabel = document.getElementById('time-val');
+    tLabel.innerHTML = `${data.time}`;
+
+    //wait after each message handle
+    await sleep(500);
+};
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
