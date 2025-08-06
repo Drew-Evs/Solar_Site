@@ -22,7 +22,7 @@
 <form id="stringForm">
   <div class="input-container">
     <label for="panel-select">Select Panel:</label>
-    <input list="panels" id="panel-input" name="panel_name" autocomplete="off" value="{{ panel_name or '' }}"/>
+    <input list="panels" id="panel-input" name="panel_name" autocomplete="off" value="{{ panel_name or 'Jinko_Solar_Co___Ltd_JKM410M_72HL_V' }}"/>
 
     <datalist id="panels">
       {% for name in panel_names %}
@@ -72,8 +72,8 @@
     </div>
 
     <div class="input-container">
-      <label for="timestep">Timestep:</label>
-      <input type="number" id="timestep" name="timestep" min="1">
+      <label for="time_int">Timestep:</label>
+      <input type="number" id="time_int" name="time_int" min="1">
     </div>
 
     <div class="input-container">
@@ -112,9 +112,19 @@
   <img id="img-preview" alt="Map" style="display:none;">
 </div>
 
-
 {% if error %}
   <p style="color: red;">{{ error }}</p>
 {% endif %}
+
+<!-- Graph display section -->
+<div id="graph-container" style="display: none;">
+  <h3>Generated Graphs</h3>
+  <!-- Graphs will be dynamically added here -->
+</div>
+
+<!-- Graph status messages -->
+<div id="graph-status" style="display: none; padding: 10px; margin-top: 10px; border: 1px solid #ccc; background-color: #f9f9f9;">
+  <!-- Status messages will appear here -->
+</div>
 
 {% endblock %}

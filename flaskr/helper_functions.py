@@ -362,8 +362,13 @@ def set_shade_at_time(time, panel_dict, file_dict):
             cells = panel_dict[pixel]
             for cell in cells:  
                 cell.set_shade(irr=100)
+
+        output = "shade set succesfully"
     except Exception as e:
-        print(f'Failed due to {e} ')
+        output = f'Failed due to {e}'
+        raise
+
+    return output
 
 #given a certain time returns the pixels that are shaded at that time
 def get_shade_at_time(time, df):
