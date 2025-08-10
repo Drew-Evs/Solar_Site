@@ -67,3 +67,30 @@ class ModuleData(db.Model):
         db.Index('idx_voltage_lookup', 'kt', 'iph', 'isat', 'n', 'Rs', 'Rp', 'current'),
     )
 
+
+#using key/value databases for speed
+class ModuleLookup(db.Model):
+    __tablename__ = "module_lookup"
+
+    id = db.Column(db.Integer, primary_key=True)
+    panel_name = db.Column(db.String(200), nullable=False)
+    key = db.Column(db.String(200), nullable=False)
+    voltage = db.Column(db.Float, nullable=False)
+
+    __table_args__ = (
+        db.Index('mod_key_lookup', 'panel_name', 'key'),
+    )
+    
+
+class CellLookup(db.Model):
+    __tablename__ = "cell_lookup"
+
+    id = db.Column(db.Integer, primary_key=True)
+    panel_name = db.Column(db.String(200), nullable=False)
+    key = db.Column(db.String(200), nullable=False)
+    value = db.Column(db.String(200), nullable=False)
+
+    __table_args__ = (
+        db.Index('cell_key_lookup', 'panel_name', 'key'),
+    )
+

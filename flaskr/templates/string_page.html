@@ -1,130 +1,361 @@
 {% extends 'base.html' %}
 
-{% block title %}String Page{% endblock %}
+{% block title %}String Model{% endblock %}
 
 {% block content %}
-
 <script src="{{ url_for('static', filename='javascript/string_model.js')}}"></script>
 
-<form id="imageForm">
-  <h1>String Model</h1>
+<style>
+  /* Page-specific styles */
+  .main-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: auto auto;
+    gap: 2rem;
+    margin-bottom: 2rem;
+  }
 
-  <label for="file">Choose File:</label>
-  <input type="file" id="file" name="file" accept="image/*">
+  .grid-item {
+    background: white;
+    border-radius: 12px;
+    padding: 2rem;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+    border: 1px solid #e1e8ed;
+    display: flex;
+    flex-direction: column;
+  }
 
-  <button type="button" onclick="uploadImage()">Upload</button>
-</form>
+  .grid-item .section-title {
+    margin-bottom: 1.5rem;
+  }
 
-<form method="POST" action="/shadow_file">
+  .preview-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 400px;
+  }
 
-</form>
+  .preview-image {
+    max-width: 100%;
+    max-height: 350px;
+    height: auto;
+    border-radius: 8px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+    object-fit: contain;
+  }
 
-<form id="stringForm">
-  <div class="input-container">
-    <label for="panel-select">Select Panel:</label>
-    <input list="panels" id="panel-input" name="panel_name" autocomplete="off" value="{{ panel_name or 'Jinko_Solar_Co___Ltd_JKM410M_72HL_V' }}"/>
+  .preview-placeholder {
+    width: 100%;
+    height: 300px;
+    border: 2px dashed #ccc;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #666;
+    font-size: 1.1rem;
+    background: #f9f9f9;
+  }
 
-    <datalist id="panels">
-      {% for name in panel_names %}
-        <option value="{{ name }}"></option>
-      {% endfor %}
-    </datalist>
+  .real-time-data {
+    background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+    color: white;
+    border-radius: 12px;
+    padding: 1.5rem;
+    margin-bottom: 2rem;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1rem;
+    width: 100%;
+  }
+
+  .data-item {
+    text-align: center;
+    background: rgba(255,255,255,0.1);
+    padding: 1rem;
+    border-radius: 8px;
+    backdrop-filter: blur(10px);
+  }
+
+  .data-label {
+    font-size: 0.9rem;
+    opacity: 0.9;
+    margin-bottom: 0.5rem;
+  }
+
+  .data-value {
+    font-size: 1.4rem;
+    font-weight: 600;
+  }
+
+  .power-analysis-section {
+    background: white;
+    border-radius: 12px;
+    padding: 2rem;
+    margin-bottom: 2rem;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+    border: 1px solid #e1e8ed;
+    width: 100%;
+  }
+
+  .graph-container {
+    background: white;
+    border-radius: 12px;
+    padding: 2rem;
+    margin-top: 2rem;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+    border: 1px solid #e1e8ed;
+    display: none;
+    width: 100%;
+  }
+
+  .graph-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
+    gap: 2rem;
+    margin-top: 1.5rem;
+    width: 100%;
+  }
+
+  .graph-item {
+    background: #f8f9fa;
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+    width: 100%;
+  }
+
+  .graph-item img {
+    width: 100%;
+    height: auto;
+    display: block;
+    transition: transform 0.3s ease;
+  }
+
+  .graph-item:hover img {
+    transform: scale(1.02);
+  }
+
+  @media (max-width: 1024px) {
+    .main-grid {
+      grid-template-columns: 1fr;
+      grid-template-rows: auto;
+    }
+    
+    .graph-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  @media (max-width: 768px) {
+    .container {
+      padding: 1rem;
+    }
+    
+    .main-grid {
+      gap: 1rem;
+    }
+    
+    .grid-item {
+      padding: 1rem;
+    }
+    
+    .graph-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
+
+<div class="container">
+  <h1 class="page-title">Solar String Model</h1>
+
+  <!-- Main 4-box grid layout -->
+  <div class="main-grid">
+    <!-- Top Left: Image Upload Section -->
+    <div class="grid-item">
+      <h2 class="section-title">📷 Upload Background Image</h2>
+      <form id="imageForm">
+        <div class="input-group">
+          <div class="file-upload">
+            <input type="file" id="file" name="file" accept="image/*">
+            <label for="file" class="file-upload-label">
+              <span>📁 Choose Image File</span>
+            </label>
+            <div class="file-name" id="file-name"></div>
+          </div>
+        </div>
+        <button type="button" class="button-primary" onclick="uploadImage()" style="margin-top: 1rem;">
+          <span>Upload Image</span>
+        </button>
+      </form>
+    </div>
+
+    <!-- Top Right: Image Preview -->
+    <div class="grid-item">
+      <h2 class="section-title">🖼️ Image Preview</h2>
+      <div class="preview-container">
+        <div class="preview-placeholder" id="preview-placeholder">
+          No image uploaded yet
+        </div>
+        <img id="img-preview" class="preview-image" alt="Solar array visualization" style="display: none;">
+      </div>
+    </div>
+
+    <!-- Bottom Left: String Configuration Section -->
+    <div class="grid-item">
+      <h2 class="section-title">⚙️ String Configuration</h2>
+      <form id="stringForm">
+        <div class="input-grid">
+          <div class="input-group">
+            <label for="panel-input">Solar Panel Model</label>
+            <input list="panels" id="panel-input" name="panel_name" autocomplete="off" value="{{ panel_name or 'Jinko_Solar_Co___Ltd_JKM410M_72HL_V' }}" placeholder="Select or type panel model..."/>
+            <datalist id="panels">
+              {% for name in panel_names %}
+                <option value="{{ name }}"></option>
+              {% endfor %}
+            </datalist>
+          </div>
+          
+          <div class="input-group">
+            <label for="pan-count">Number of Panels (1-56)</label>
+            <input type="number" id="pan-count" name="panel_count" min="1" max="56" step="1" value="{{ panel_count or 28 }}">
+          </div>
+          
+          <div class="input-group">
+            <label for="rotation">Rotation (degrees)</label>
+            <select id="rotation" name="rotation">
+              <option value="0" {% if rotation == 0 %}selected{% endif %}>0°</option>
+              <option value="90" {% if rotation == 90 %}selected{% endif %}>90°</option>
+              <option value="180" {% if rotation == 180 %}selected{% endif %}>180°</option>
+              <option value="270" {% if rotation == 270 %}selected{% endif %}>270°</option>
+            </select>
+          </div>
+        </div>
+
+        <h3 style="margin: 1rem 0 0.5rem 0; color: #555;">String Position</h3>
+        <div class="coord-grid">
+          <div class="input-group">
+            <label for="X">X Coordinate (0-1000)</label>
+            <input type="number" id="X" name="X" min="0" max="1000" step="1" value="{{ X or 0 }}">
+          </div>
+          <div class="input-group">
+            <label for="Y">Y Coordinate (0-1000)</label>
+            <input type="number" id="Y" name="Y" min="0" max="1000" step="1" value="{{ Y or 0 }}">
+          </div>
+        </div>
+
+        <button type="button" class="button-primary" onclick="submitBuildString()" style="margin-top: 1rem;">
+          <span>🔧 Build String</span>
+        </button>
+      </form>
+    </div>
+
+    <!-- Bottom Right: String Status/Info (initially empty, could be used for string details) -->
+    <div class="grid-item">
+      <h2 class="section-title">📊 String Information</h2>
+      <div id="string-info" style="display: flex; align-items: center; justify-content: center; height: 100%; color: #666; font-style: italic;">
+        Build a string to see configuration details
+      </div>
+    </div>
   </div>
 
-  <div class="input-wrapper">
-    <div class="input-container">
-        <label for="count">Number of Panels (1-56)</label>
-        <input type="number" id="pan-count" name="panel_count" min="1" max="56" step="1" value="{{ panel_count or 28 }}">
-    </div>
+  <!-- Power Modeling Section - Full width -->
+  <div class="power-analysis-section">
+    <h2 class="section-title">⚡ Power Analysis</h2>
+    <form id="eForm">
+      <div class="input-grid">
+        <div class="input-group">
+          <label for="start">Start Date</label>
+          <input type="date" id="start" name="start">
+        </div>
+        
+        <div class="input-group">
+          <label for="end">End Date</label>
+          <input type="date" id="end" name="end">
+        </div>
+        
+        <div class="input-group">
+          <label for="time_int">Time Step</label>
+          <input type="number" id="time_int" name="time_int" min="1" value="1">
+        </div>
+        
+        <div class="input-group">
+          <label for="unit">Time Unit</label>
+          <select id="unit" name="unit" required>
+            <option value="minutes">Minutes</option>
+            <option value="hours" selected>Hours</option>
+            <option value="days">Days</option>
+          </select>
+        </div>
+      </div>
 
-    <div class="input-container">
-        <label for="rotate">Rotation (0, 90, 180, 270)</label>
-        <input type="number" id="rotation" name="rotation" min="0" max="270" step="90" value="{{ rotation or 0 }}">
+      <h3 style="margin-bottom: 1rem; color: #555;">Location Coordinates</h3>
+      <div class="coord-grid">
+        <div class="input-group">
+          <label for="lon">Longitude (-180 to 180)</label>
+          <input type="number" id="lon" name="lon" min="-180" max="180" step="0.1" value="{{ lon or 0 }}">
+        </div>
+        <div class="input-group">
+          <label for="lat">Latitude (-90 to 90)</label>
+          <input type="number" id="lat" name="lat" min="-90" max="90" step="0.1" value="{{ lat or 0 }}">
+        </div>
+      </div>
+
+      <div class="input-group">
+        <label for="pfile">Weather Data File (CSV)</label>
+        <div class="file-upload">
+          <input type="file" id="pfile" name="pfile" accept=".csv">
+          <label for="pfile" class="file-upload-label">
+            <span>📊 Choose CSV File</span>
+          </label>
+          <div class="file-name" id="pfile-name"></div>
+        </div>
+      </div>
+
+      <button type="button" class="button-primary" onclick="buildEData()" id="model-button">
+        <div class="loading-spinner" id="loading-spinner"></div>
+        <span id="button-text">🚀 Model Power Over Time</span>
+      </button>
+    </form>
+  </div>
+
+  <!-- Real-time Data Display - Full width -->
+  <div class="real-time-data" id="real-time-data" style="display: none;">
+    <div class="data-item">
+      <div class="data-label">Solar Irradiance</div>
+      <div class="data-value" id="irradiance-val">0 W/m²</div>
+    </div>
+    <div class="data-item">
+      <div class="data-label">Power Output</div>
+      <div class="data-value" id="power-val">0 W</div>
+    </div>
+    <div class="data-item">
+      <div class="data-label">Current Time</div>
+      <div class="data-value" id="time-val">--</div>
     </div>
   </div>
 
-  <p>Top Left Coordinate of String</p>
-
-  <div class="coord-wrapper">
-    <label for="X">X (0-1000)</label>
-    <input type="number" id="X" name="X" min="0" max="1000" step="1" value="{{ X or 0 }}">
-    <label for="Y">Y (0-1000)</label>
-    <input type="number" id="Y" name="Y" min="0" max="1000" step="1" value="{{ Y or 0 }}">
+  <!-- Graph Container - Full width -->
+  <div class="graph-container" id="graph-container">
+    <h2 class="section-title">📈 Generated Graphs</h2>
+    <div class="graph-grid" id="graph-grid">
+      <!-- Graphs will be dynamically added here -->
+    </div>
   </div>
 
-  <button type="button" onclick="submitBuildString()">Build String</button>
-</form>
-
-<form method="POST" action="/get_environment_data">
-  <button type="submit">Get Environment Data</button>
-</form>
-
-<form id="eForm">
-  <div class="input-wrapper">
-    <div class="input-container">
-      <label for="start">Select Start Date:</label>
-      <input type="date" id="start" name="start", step="1">
-    </div>
-
-    <div class="input-container">
-      <label for="end">Select End Date:</label>
-      <input type="date" id="end" name="end", step="1">    
-    </div>
-
-    <div class="input-container">
-      <label for="time_int">Timestep:</label>
-      <input type="number" id="time_int" name="time_int" min="1">
-    </div>
-
-    <div class="input-container">
-      <label for="unit">Unit:</label>
-      <select id="unit" name="unit" required>
-        <option value="minutes">Minutes</option>
-        <option value="hours" selected>Hours</option>
-        <option value="days">Days</option>
-      </select>
-    </div>
-
-    <div class="coord-wrapper">
-      <label for="lon">X (-180-180)</label>
-      <input type="number" id="lon" name="lon" min="-180" max="180" step="0.1" value="{{ lon or 0 }}">
-      <label for="lat">Latitude (-90-90)</label>
-      <input type="number" id="lat" name="lat" min="-90" max="90" step="0.1" value="{{ lat or 0 }}">
-    </div>
-
-    <label for="pfile">Choose File:</label>
-    <input type="file" id="pfile" name="pfile" accept=".csv">
-
-    <button type="button", onclick="buildEData()">Model Power Over Time</button>
+  <!-- Status Messages -->
+  <div class="status-message" id="graph-status">
+    <!-- Status messages will appear here -->
   </div>
-  
-  <label for="irradiance-val">Irradiance Value:</label>
-  <span id="irradiance-val">0 W/m<sup>2</sup></span>
-
-  <label for="power-val">   Power Value:</label>
-  <span id="power-val">0 W</span>
-
-  <label for="time-val">  Time:</label>
-  <span id="time-val"></span>
-</form>
-
-<div class="field"> 
-  <img id="img-preview" alt="Map" style="display:none;">
 </div>
 
+<!-- Error message from Flask -->
 {% if error %}
-  <p style="color: red;">{{ error }}</p>
+  <div class="status-message error-message" style="display: flex;">
+    {{ error }}
+  </div>
 {% endif %}
-
-<!-- Graph display section -->
-<div id="graph-container" style="display: none;">
-  <h3>Generated Graphs</h3>
-  <!-- Graphs will be dynamically added here -->
-</div>
-
-<!-- Graph status messages -->
-<div id="graph-status" style="display: none; padding: 10px; margin-top: 10px; border: 1px solid #ccc; background-color: #f9f9f9;">
-  <!-- Status messages will appear here -->
-</div>
 
 {% endblock %}

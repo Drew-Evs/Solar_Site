@@ -16,6 +16,7 @@ import psutil
 import shutil
 from memory_profiler import memory_usage
 import tracemalloc
+import cProfile, pstats, io
 
 sm = Blueprint('string_modelling', __name__)
 
@@ -159,6 +160,9 @@ def time_power_model():
         #last id to resume connection
         last_event_id = data.get('Last-Event-ID', None)
 
+        if last_event_id in (None, '', 'null'):
+            open("output_text.log", "w").close()
+
         try:
             last_id = int(last_event_id)
         except (ValueError, TypeError):
@@ -168,7 +172,7 @@ def time_power_model():
 
         #get correct timestep unit
         time_dict = {
-            'minutes': 'm',
+            'minutes': 'min',
             'hours': 'h',
             'days': 'd'
         }
@@ -176,7 +180,7 @@ def time_power_model():
         t_unit = time_dict.get(unit)
         timezone = ZoneInfo(hp.get_timezone(lat, lon))
         
-        timestep = timedelta(**{'hours': time_int})
+        timestep = timedelta(**{unit: time_int})
         print(timestep)
 
         dni_df = hp.get_irr(start_date, end_date, lat, lon, time_int, t_unit, timezone)
@@ -201,15 +205,12 @@ def time_power_model():
 
 def generate(_instance, timestep, p_filename, start_date, end_date,
         app, dni_df, timezone, last_id, lat, lon):
+
     try:
         local_instance = copy.deepcopy(_instance)
         print(f'Local copy {local_instance.num_panels}')
 
         print(f'Last id is {last_id}')
-
-        #stores data
-        times = []
-        results = [[],[],[]]
 
         with app.app_context():
             try:
@@ -242,12 +243,12 @@ def generate(_instance, timestep, p_filename, start_date, end_date,
             iteration_count = 0
 
             while time <= end:
+                time_str = time.strftime("%H:%M")
                 #skips events already done
                 if last_id is not None and iteration_count <= last_id:
                     time += timedelta(hours=1)
                     iteration_count += 1
                     continue
-
 
                 print("Time in loop:", time, type(time))
                 try:
@@ -273,9 +274,9 @@ def generate(_instance, timestep, p_filename, start_date, end_date,
                 try:
                     #calculate the values like before
                     out1 = local_instance.reset(irr, temp)
-                    print(f'Output from reset is {out1}')
+                    #print(f'Output from reset is {out1}')
                     
-                    #out = hp.set_shade_at_time(time, panel_dict, pixel_dict)
+                    out = hp.set_shade_at_time(time, panel_dict, pixel_dict)
                     #print(f'Output from shade is {out}')
                 except Exception as e:
                     print(f'Setting shade failed due to {e}')
@@ -289,18 +290,20 @@ def generate(_instance, timestep, p_filename, start_date, end_date,
                     data = {
                         'pmax': float(Pmax) if Pmax is not None else 0.0,
                         'e_info': float(irr) if irr is not None else 0.0,
-                        'time': time.isoformat(),
+                        'time': time_str,
                         'id': iteration_count
                     }
-
-                    times.append(time)
-                    results[0].append(Pmax)
-                    results[1].append(Vmp)
-                    results[2].append(Imp)
 
                     json_data = json.dumps(data)
                     print(f"DEBUG at {time}: Pmax={Pmax}, irr={irr}, temp={temp}")
                     print(f"Serialized data: {json_data}")
+
+                    #string writing to the output
+                    str_out = f'{time_str}|{Pmax}|{Vmp}|{Imp}'
+
+                    #write to the output
+                    with open("output_text.log", "a") as f:
+                        f.write(f'{str_out}\n')
 
                     yield f"data: {json_data}\n\n"
                     
@@ -314,7 +317,7 @@ def generate(_instance, timestep, p_filename, start_date, end_date,
                     return
 
 
-                time += timedelta(hours=1)
+                time += timestep
                 iteration_count += 1
 
                 import time as time_module
@@ -326,7 +329,7 @@ def generate(_instance, timestep, p_filename, start_date, end_date,
 
         def _draw():
             try:
-                graph_paths = draw_graph(results, times, start_date, end_date, lat, 
+                graph_paths = draw_graph(start_date, end_date, lat, 
                     lon, local_instance.panel_name)
 
                 if graph_paths is None:
@@ -375,11 +378,12 @@ def generate(_instance, timestep, p_filename, start_date, end_date,
             yield f"data: {json.dumps(error_data)}\n\n"
 
         yield "event: close\ndata: {}\n\n"
+
+        pass
         
     except Exception as e:
         print(f"Generator error: {e}")
         yield f"data: {json.dumps({'error': str(e)})}\n\n"
-
 
 @sm.route("/save_shade_file", methods=['POST'])
 def save_shade_file():
@@ -396,7 +400,32 @@ def save_shade_file():
 
 
 #draws graphs of over time
-def draw_graph(results, times, start_date, end_date, lat, lon, panel_name):
+def draw_graph(start_date, end_date, lat, lon, panel_name):
+    results = [[],[],[]]
+    times = []
+
+    #sets up the results
+    with open("output_text.log", "r") as f:
+        lines = f.readlines()
+        for line in lines:
+            result = line.strip()
+
+            #splits the results
+            divided_res = result.split('|')
+
+            if len(divided_res) != 4:
+                print(f"Skipping malformed line: {line}")
+                continue
+
+            #place them in the correct part of the results
+            times.append(divided_res[0])
+            results[0].append(float(divided_res[1]))
+            results[1].append(float(divided_res[2]))
+            results[2].append(float(divided_res[3]))
+
+    print(results)
+
+
     output_dir = f'flaskr/static/powertimes/{panel_name}/{lat}{lon}/{start_date}'
     web_dir = f'static/powertimes/{panel_name}/{lat}{lon}/{start_date}'
     # Delete the entire directory if it exists

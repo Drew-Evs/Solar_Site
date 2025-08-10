@@ -5,18 +5,27 @@ import math
 from functools import lru_cache
 import numpy as np
 from scipy.optimize import fsolve
-from flaskr.models import CellData, PanelInfo, ModuleData
+from flaskr.models import CellData, PanelInfo, ModuleData, CellLookup, ModuleLookup
 from flaskr import db
 
 
 #models the individual solar cells
 class Solar_Cell():
+    #shard cache for all solar cells
+    _cell_cache = None
+
     #constructor matching material of a cell to its ideal conditions
     def __init__(self, initial_conditions, panel_name, shadow, temp):
         try:
             #an array containing conditions given 25 degrees and 950 irradiance
             self.panel_name = panel_name
             self.ACTUAL_CONDITIONS = [0,0,0,0,0,0,0]
+            self.parent = None
+
+            #loads cache for first instance 
+            if Solar_Cell._cell_cache is None:
+                Solar_Cell._load_cell_cache()
+
             if initial_conditions is not None:
                 Iph, Is, n, Rs, Rp = initial_conditions
                 self.ACTUAL_CONDITIONS = [Iph, Is, n, Rs, Rp, 25, 950]
@@ -28,30 +37,36 @@ class Solar_Cell():
         except Exception as e:
             print("Error constructing cell: ", e)
 
+    #loads the cache at the class level
+    @classmethod
+    def _load_cell_cache(cls):
+        print("Loading shared module cache from DB...")
+        cls._cell_cache = {
+            (rec.panel_name, rec.key): rec.value
+            for rec in CellLookup.query.all()
+        }
+        print(f"Loaded {len(cls._cell_cache)} entries into shared cache")
+
     #using caching to store sets of values based on heat/irradiance
-    @lru_cache(maxsize=10000)
     def _lookup(self, *key):
-        G, T = key
+        key_str = hp._key_from_floats(*key)
 
-        #query the model
-        record = CellData.query.filter_by(
-            panel_name = self.panel_name,
-            temperature = self.round_3sf(T),
-            irradiance = self.round_3sf(G)
-        ).first() 
-
-        if record:
-            #return the saved conditions
-            return record.iph, record.isat, record.n, record.Rs, record.Rp
-
-        #if no conditions
-        raise ValueError("No cached record")
+        #query the cache
+        try:
+            result = Solar_Cell._cell_cache[(self.panel_name, key_str)]
+            results = hp._floats_from_key(result) 
+            return results[0], results[1], results[2], results[3], results[4]
+        except:
+            #if no conditions
+            raise ValueError("No cached record")
 
     #takes an input of a shade level and returns the correct irradiance
     def set_shade(self, irr):
         try:
             self.ACTUAL_CONDITIONS[6] = irr
             self.set_library_conditions()
+            if self.parent:
+                self.parent.update_shaded(True)
         except Exception as e:
             print("Shading level incorrect: ", e)
 
@@ -213,27 +228,26 @@ class Solar_Cell():
             self.ACTUAL_CONDITIONS[4] = Rp
         except Exception as e:
             raise
-    
-    #convert a key from temperature and irr
-    def _key_from_floats(self, *numbers, prec=2):
-        return "|".join(f"{x:.{prec}g}" for x in numbers)
 
     #saving cell conditions to hash table
     def save_hash_c(self, G, T, Iph, Is, n, Rs, Rp):
+        key = hp._key_from_floats(G,T)
+        values = hp._key_from_floats(Iph, Is, n, Rs, Rp)
 
-        new_record = CellData(
-            panel_name=self.panel_name,
-            irradiance=self.round_3sf(G),
-            temperature=self.round_3sf(T),
-            iph=self.round_3sf(Iph),
-            isat=self.round_3sf(Is),
-            n=self.round_3sf(n),
-            Rs=self.round_3sf(Rs),
-            Rp=self.round_3sf(Rp)
-        )
-        db.session.add(new_record)
+        Solar_Cell._cell_cache[(self.panel_name, key)] = values
+
+        existing = CellLookup.query.filter_by(panel_name=self.panel_name, key=key).first()
+
+        if existing:
+            existing.value = values
+        else:
+            new_record = CellLookup(
+                panel_name=self.panel_name,
+                key=key,
+                value=values
+            )
+            db.session.add(new_record)
         db.session.commit()
-        self._lookup.cache_clear()
 
     #finding the hash conditions
     def find_hash_c(self, *key):
@@ -248,6 +262,9 @@ class Solar_Cell():
 
 #models a series of solar cells connected to a bypass diode
 class Simple_Module():
+    #shared cache between modules
+    _module_cache = None
+
     def __init__(self, initial_conditions, panel_name, cell_count, rows):
         #initiates variables
         self.cell_count = cell_count
@@ -255,24 +272,12 @@ class Simple_Module():
         self.cell_list = []
         self.panel_name = panel_name
 
-        #open caching for voltage
-        @lru_cache(maxsize=10_000)
-        def _lookup(I, Iph, Is, nC, Rs, Rp, Kt):
-            try:
-                record = ModuleData.query.filter_by(
-                    kt = Kt,
-                    iph = Iph,
-                    isat = Is,
-                    n = nC,
-                    Rs = Rs,
-                    Rp = Rp,
-                    current = I
-                ).first()
-                return record.voltage
-            except Exception as e:
-                return math.nan
-        
-        self._lookup = _lookup
+        #initiates cache if non existant
+        if Simple_Module._module_cache is None:
+            Simple_Module._load_module_cache()
+
+        #test if any cells have been shaded
+        self.shaded = False
 
         self.Isc = 0
 
@@ -285,6 +290,8 @@ class Simple_Module():
                     temp = []
                     for j in range(self.cell_count//rows):
                         cell = Solar_Cell(initial_conditions, panel_name, 950, 25)
+                        #reference self in the child cell
+                        cell.parent = self 
                         self.cell_list.append(cell)
                         temp.append(cell)
                     self.cell_array.append(temp)
@@ -295,6 +302,28 @@ class Simple_Module():
 
         except ValueError as e:
             print("Need the number of cells to be divisible by number of rows")
+
+    #open caching for voltage
+    @classmethod
+    def _load_module_cache(cls):
+        print("Loading shared module cache from DB...")
+        cls._module_cache = {
+            (rec.panel_name, rec.key): rec.voltage
+            for rec in ModuleLookup.query.all()
+        }
+        print(f"Loaded {len(cls._module_cache)} entries into shared cache")
+
+    def _lookup(self, I, Iph, Is, nC, Rs, Rp, Kt):
+        key_str = hp._key_from_floats(I, Iph, Is, nC, Rs, Rp, Kt)
+
+        try:
+            return Simple_Module._module_cache[(self.panel_name, key_str)]
+        except KeyError:
+            return math.nan
+
+    #sets the module to either there is shaded cells or no shaded cells
+    def update_shaded(self, s_bool):
+        self.shaded = s_bool
 
     #gets the min isc of module
     def actual_short_circuit(self):
@@ -407,28 +436,26 @@ class Simple_Module():
             return Pmax, Vmp, Imp
         else:
             return 0, 0, 0
-
-    #will return a stable key to use as a float
-    def _key_from_floats(self, *numbers, prec=6):
-        return "|".join(f"{x:.{prec}g}" for x in numbers)
     
     #opens dictionary based on panel name to save the information
     #cache handles any misses (_lookup)
     def save_hash_v(self, current, Iph, Is, nC, Rs, Rp, Kt, voltage):
-        new_record = ModuleData(
-            kt=Kt,
-            iph=Iph,
-            isat=Is,
-            n=nC,
-            Rs=Rs,
-            Rp=Rp,
-            voltage=voltage,
-            current=current
-        )
-        db.session.add(new_record)
+        key = hp._key_from_floats(current, Iph, Is, nC, Rs, Rp, Kt)
+
+        Simple_Module._module_cache[(self.panel_name, key)] = voltage
+
+        existing = ModuleLookup.query.filter_by(panel_name=self.panel_name, key=key).first()
+
+        if existing:
+            existing.voltage = voltage
+        else:
+            new_record = ModuleLookup(
+                panel_name=self.panel_name,
+                key=key,
+                voltage=voltage
+            )
+            db.session.add(new_record)
         db.session.commit()
-        #syncs the RAM and cache
-        self._lookup.cache_clear()
 
     #tests if hash in dictionary already 
     def find_hash_v(self, current, Iph, Is, nC, Rs, Rp, Kt):
@@ -541,11 +568,19 @@ class Panel():
         self.short_circuits = [module.actual_short_circuit() for module in self.module_list]
     
     #sum the voltage
-    def voltage_summation(self, I):
+    def voltage_summation(self, I, unshaded_count, unshaded_val):
         sum_v = 0
 
         for i, module in enumerate(self.module_list):
             values = self.load_dict(module)
+
+            #increase count if shaded
+            if module.shaded == False:
+                unshaded_count += 1
+                #test if value already calculated
+                if unshaded_val == None:
+                    unshaded_val = module.get_voltage(I, values)
+
             #also need to test if Iph is too low values[0] is iph
             if self.short_circuits[i] < I or I > values[0]:
                 module.activate_bypass()
@@ -553,7 +588,7 @@ class Panel():
             else:
                 sum_v += module.get_voltage(I, values)
 
-        return sum_v
+        return sum_v, unshaded_count, unshaded_val
 
         #store the total parameters per module in the dictionary
     def store_dict(self, module, *values):
@@ -738,9 +773,18 @@ class Solar_String():
     #calculate total voltage for the string given a current
     def get_voltage(self, I):
         print(f'Testing current {I}')
+        unshaded_count = 0
+        unshaded_val = None
         sum_v = 0
+
+        #adds up number of unshaded panels
         for panel in self.panel_list:
-            sum_v += panel.voltage_summation(I)
+            voltage, unshaded_count, unshaded_val = panel.voltage_summation(I, unshaded_count, unshaded_val)
+            sum_v += voltage
+
+        #multiplies by the unshaded value
+        if unshaded_val is not None:
+            sum_v += (unshaded_val*unshaded_count)
 
         return sum_v
 
@@ -865,6 +909,7 @@ class Solar_String():
                     for cell in module.cell_list:
                         cell.set_temp(temp)
                         cell.set_shade(irr)
+                    module.update_shaded(False)
                 panel.set_short_circuits()
 
                 output = 'reset succesfully'

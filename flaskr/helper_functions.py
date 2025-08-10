@@ -379,3 +379,9 @@ def get_shade_at_time(time, df):
     ]
 
     return in_range
+
+def _key_from_floats(*numbers, prec=2):
+    return "|".join(f"{x:.{prec}g}" for x in numbers)
+
+def _floats_from_key(key: str):
+    return tuple(float(x) for x in key.split("|"))
