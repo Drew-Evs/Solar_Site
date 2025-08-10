@@ -1,0 +1,73 @@
+Iteration 0: Memory usage: 233.48 MB
+Iteration 1: Memory usage: 236.35 MB
+Iteration 2: Memory usage: 239.60 MB
+Iteration 3: Memory usage: 240.48 MB
+Iteration 4: Memory usage: 241.73 MB
+Iteration 5: Memory usage: 242.73 MB
+Iteration 6: Memory usage: 244.98 MB
+Iteration 7: Memory usage: 246.10 MB
+Iteration 8: Memory usage: 247.10 MB
+Iteration 0: Memory usage: 269.52 MB
+Iteration 0: tracemalloc: Current=13.72 MB, Peak=27.50 MB
+Iteration 0: Top memory lines:
+  <frozen posixpath>:88: size=1676 KiB, count=13314, average=129 B
+  /usr/local/python/3.12.1/lib/python3.12/copy.py:268: size=1446 KiB, count=15738, average=94 B
+  /workspaces/Solar_Site/flaskr/classes.py:239: size=1115 KiB, count=14113, average=81 B
+
+Iteration 0: Memory usage: 270.80 MB
+Iteration 0: tracemalloc: Current=13.71 MB, Peak=27.66 MB
+Iteration 0: Top memory lines:
+  <frozen posixpath>:88: size=1676 KiB, count=13314, average=129 B
+  /usr/local/python/3.12.1/lib/python3.12/copy.py:268: size=1446 KiB, count=15738, average=94 B
+  /workspaces/Solar_Site/flaskr/classes.py:239: size=1115 KiB, count=14113, average=81 B
+  /workspaces/Solar_Site/flaskr/classes.py:427: size=1032 KiB, count=11368, average=93 B
+  /usr/local/python/3.12.1/lib/python3.12/site-packages/sqlalchemy/engine/cursor.py:1137: size=956 KiB, count=40772, average=24 B
+  /workspaces/Solar_Site/flaskr/classes.py:22: size=772 KiB, count=14112, average=56 B
+  /usr/local/python/3.12.1/lib/python3.12/copy.py:196: size=604 KiB, count=9073, average=68 B
+  /workspaces/Solar_Site/flaskr/classes.py:279: size=554 KiB, count=14112, average=40 B
+  /workspaces/Solar_Site/flaskr/classes.py:45: size=551 KiB, count=7056, average=80 B
+  /usr/local/python/3.12.1/lib/python3.12/copy.py:192: size=496 KiB, count=9073, average=56 B
+  /usr/local/python/3.12.1/lib/python3.12/copy.py:151: size=494 KiB, count=7897, average=64 B
+  /usr/local/python/3.12.1/lib/python3.12/site-packages/werkzeug/_reloader.py:306: size=405 KiB, count=1, average=405 KiB
+  /usr/local/python/3.12.1/lib/python3.12/copyreg.py:99: size=370 KiB, count=7897, average=48 B
+  /home/codespace/.local/lib/python3.12/site-packages/pycparser/yacctab.py:16: size=363 KiB, count=598, average=621 B
+  <frozen importlib._bootstrap_external>:752: size=354 KiB, count=3802, average=95 B
+
+Iteration 1: Memory usage: 294.80 MB
+Iteration 1: tracemalloc: Current=17.56 MB, Peak=27.66 MB
+Iteration 1: Top memory lines:
+  /workspaces/Solar_Site/flaskr/classes.py:239: size=2230 KiB, count=28225, average=81 B
+  /workspaces/Solar_Site/flaskr/classes.py:427: size=2052 KiB, count=22344, average=94 B
+  /usr/local/python/3.12.1/lib/python3.12/site-packages/sqlalchemy/engine/cursor.py:1137: size=1911 KiB, count=81540, average=24 B
+  <frozen posixpath>:88: size=1676 KiB, count=13314, average=129 B
+  /usr/local/python/3.12.1/lib/python3.12/copy.py:268: size=1446 KiB, count=15738, average=94 B
+  /workspaces/Solar_Site/flaskr/classes.py:45: size=1102 KiB, count=14112, average=80 B
+  /workspaces/Solar_Site/flaskr/classes.py:22: size=772 KiB, count=14112, average=56 B
+  /usr/local/python/3.12.1/lib/python3.12/copy.py:196: size=604 KiB, count=9073, average=68 B
+  /workspaces/Solar_Site/flaskr/classes.py:279: size=554 KiB, count=14112, average=40 B
+  /usr/local/python/3.12.1/lib/python3.12/copy.py:192: size=496 KiB, count=9073, average=56 B
+  /usr/local/python/3.12.1/lib/python3.12/copy.py:151: size=494 KiB, count=7897, average=64 B
+  /usr/local/python/3.12.1/lib/python3.12/site-packages/werkzeug/_reloader.py:306: size=405 KiB, count=1, average=405 KiB
+  /usr/local/python/3.12.1/lib/python3.12/copyreg.py:99: size=370 KiB, count=7897, average=48 B
+  /home/codespace/.local/lib/python3.12/site-packages/pycparser/yacctab.py:16: size=363 KiB, count=598, average=621 B
+  <frozen importlib._bootstrap_external>:752: size=354 KiB, count=3802, average=95 B
+
+Iteration 2: Memory usage: 337.15 MB
+Iteration 2: tracemalloc: Current=20.26 MB, Peak=27.66 MB
+Iteration 2: Top memory lines:
+  /workspaces/Solar_Site/flaskr/classes.py:239: size=2920 KiB, count=40001, average=75 B
+  /workspaces/Solar_Site/flaskr/classes.py:427: size=2866 KiB, count=33320, average=88 B
+  /usr/local/python/3.12.1/lib/python3.12/site-packages/sqlalchemy/engine/cursor.py:1137: size=2730 KiB, count=116468, average=24 B
+  <frozen posixpath>:88: size=1676 KiB, count=13314, average=129 B
+  /workspaces/Solar_Site/flaskr/classes.py:45: size=1562 KiB, count=20000, average=80 B
+  /usr/local/python/3.12.1/lib/python3.12/copy.py:268: size=1446 KiB, count=15738, average=94 B
+  /workspaces/Solar_Site/flaskr/classes.py:22: size=772 KiB, count=14112, average=56 B
+  /usr/local/python/3.12.1/lib/python3.12/copy.py:196: size=604 KiB, count=9073, average=68 B
+  /workspaces/Solar_Site/flaskr/classes.py:279: size=554 KiB, count=14112, average=40 B
+  /usr/local/python/3.12.1/lib/python3.12/copy.py:192: size=496 KiB, count=9073, average=56 B
+  /usr/local/python/3.12.1/lib/python3.12/copy.py:151: size=494 KiB, count=7897, average=64 B
+  /usr/local/python/3.12.1/lib/python3.12/site-packages/werkzeug/_reloader.py:306: size=405 KiB, count=1, average=405 KiB
+  /usr/local/python/3.12.1/lib/python3.12/copyreg.py:99: size=370 KiB, count=7897, average=48 B
+  /home/codespace/.local/lib/python3.12/site-packages/pycparser/yacctab.py:16: size=362 KiB, count=593, average=625 B
+  <frozen importlib._bootstrap_external>:752: size=354 KiB, count=3802, average=95 B
+

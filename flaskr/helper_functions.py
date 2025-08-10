@@ -1,4 +1,5 @@
 import pvlib
+from pvlib.location import Location
 from datetime import datetime, timedelta
 import pytz
 from pathlib import Path
@@ -6,15 +7,21 @@ import pandas as pd
 import os
 import matplotlib.pyplot as plt
 import shelve
+from .models import EnvironmentalData
+from flask import current_app
+from . import db
+from timezonefinder import TimezoneFinder
+import numpy as np
 
 #use pvlib to find irradiance and temperature of longitude and latitude for a day
 def get_info(start, end, lat, long):
-    print(f'Start year {start.year} ')
+    start = start.replace(year=2021) 
+    end = end.replace(year=2021)
     data, metadata = pvlib.iotools.get_pvgis_hourly(
         latitude=lat,
         longitude=long,
         start=start.year,
-        end=end.year+1,
+        end=end.year
     )
 
     #need to add a timezone to test between
@@ -30,7 +37,6 @@ def get_info(start, end, lat, long):
 def adjust_df(df):
     filtered = pd.DataFrame({
         'Total Irradiance (W/m2)': df['poa_direct'] + df['poa_sky_diffuse'] + df['poa_ground_diffuse'],
-        #adjust temperature for panel (cell temp = air temp + irradiance/800 * 22)
         'Temperature (°C)': df['temp_air'] + (df['poa_direct'] + df['poa_sky_diffuse'] + df['poa_ground_diffuse'])/800 * 22
     }, index=pd.to_datetime(df.index, utc=True))
 
@@ -86,27 +92,36 @@ def interpolate_df(df, timestep=10):
     return full_df
 
 #store information into a csv file
-def create_csv(start, lat, long):
-    end = start + timedelta(hours=24)
-    df = get_info(start, end, lat, long)
+def create_edatabase(start, end, lat, lon):
+    if end is None:
+        end = start + timedelta(hours=24)
+        
+    df = get_info(start, end, lat, lon)
     filtered = adjust_df(df)
-    filtered = interpolate_df(filtered)
-
-    create_folder()
-
-    #create the path via filename
-    start = start.strftime('%Y.%m.%d')
-    filename = f'{start}_coord{lat}{long}'
     
-    filtered.to_csv(f'Environment_Params/{filename}.csv', index=False)
+    #store in the database
+    with current_app.app_context():
+        for i, (index, row) in enumerate(filtered.iterrows()):
+            exists = EnvironmentalData.query.filter_by(
+                date=index.replace(year=2025),
+                latitude=lat,
+                longitude=lon
+            ).first()
+            
+            if not exists:
+                record = EnvironmentalData(
+                    date = index,
+                    hour = i,
+                    longitude=lon,
+                    latitude=lat,
+                    temperature=row['Temperature (°C)'],
+                    irradiance=row['Total Irradiance (W/m2)']
+                )
+                db.session.add(record)
+        
+        db.session.commit()
+    
     return filtered
-
-#creates the folder to store it in
-def create_folder():
-    folder_name = 'Environment_Params'
-    current_dir = os.getcwd()
-    folder_path = os.path.join(current_dir, folder_name)
-    os.makedirs(folder_path, exist_ok=True)
 
 #draws the graphs
 def draw_graph(powers, voltages, currents, type, panel_name):
@@ -197,3 +212,176 @@ def round_sf(x, sig=3):
         return 0
     from math import log10, floor
     return round(x, sig - int(floor(log10(abs(x)))) - 1)
+
+def calculate_pixels(string):
+    location_dict = {}
+
+    #original start of string
+    x, y = string.left_top_point
+
+    #iterate through each panel
+    for i, panel in enumerate(string.panel_list):
+        #print(f'Panel number {i}')
+        col = i*6
+        row = 0
+        for module in panel.module_list:
+            for j in range(module.rows):
+                for cell in module.cell_array[j]:
+                    key = get_cell_pixel_pos(string, row, col)
+                    if key in location_dict:
+                        location_dict[key].append(cell)
+                    else:
+                        location_dict[key] = [cell]
+                    col += 1
+                row += 1
+                col = i*6
+
+    return location_dict
+
+def get_cell_pixel_pos(string, row, col):
+    #key values
+    base_x, base_y = string.left_top_point
+    cell_w = string.cell_width/0.67
+    cell_h = string.cell_height/0.67
+    rotation = string.rotation
+
+    #depending on the way its facing, will grow in different directions
+    if rotation == 0:
+        x = base_x + col * cell_w
+        y = base_y - row * cell_h
+    elif rotation == 90:
+        x = base_x + row * cell_h
+        y = base_y + col * cell_w
+    elif rotation == 180:
+        x = base_x - col * cell_w
+        y = base_y + row * cell_h
+    elif rotation == 270:
+        x = base_x - row * cell_h
+        y = base_y - col * cell_w
+    else:
+        raise ValueError("Not valid rotation value")
+    return pixel_to_key(x,y)
+
+def pixel_to_key(*pixel_loc):
+    x,y = pixel_loc
+    return f'{x:.0f},{y:.0f}'
+
+def key_to_pixel(key):
+    try:
+        x_str, y_str = key.split(',')
+        x = float(x_str)
+        y = float(y_str)
+        return x, y
+    except Exception as e:
+        print(f'Exception key is {key}\n')
+
+def file_pixel_dict(filename, start_date, end_date, timestep):
+    d_format = "%d/%m/%Y %H:%M:%S"
+    pixel_dict = {}
+    time = start_date
+
+    duration_frame = get_times(filename)
+
+    while time <= end_date:
+        in_range = get_shade_at_time(time, duration_frame)
+        pixel_x = in_range['Pixel X'].values
+        pixel_y = in_range['Pixel Y'].values
+
+        pixel_arr = [pixel_to_key(x, y) for x, y in zip(pixel_x, pixel_y)] if not in_range.empty else []
+
+        pixel_dict[datetime.strftime(time, d_format)] = pixel_arr
+
+        time += timestep
+    
+    return pixel_dict
+
+def get_times(filename): 
+    df = pd.read_csv(filename, parse_dates=["First Shadow Timestamp", "Last Shadow Timestamp"], dayfirst=True)
+
+    return df
+
+def get_timezone(lat, lon):
+    tf = TimezoneFinder()
+    timezone_str = tf.timezone_at(lat=lat, lng=lon)
+    return timezone_str
+
+#interpolate change in temp/irradiance
+#if timestep between hours
+def interpolate(timestep, temp_change, irr_change, start, end,
+        start_temp, start_irr):
+    #stores the result in a dict
+    t_per_step = (temp_change) * (60/timestep)
+    i_per_step = (irr_change) * (60/timestep)
+    time = start
+
+    results = {}
+    i = 0
+
+    #iterates through each time
+    while time < end:
+        results[time] = (start_temp + t_per_step*i, start_irr + i_per_step*i)
+        i += 1
+
+    return results
+
+
+#using clearsky from pvlib to get more accurate conditions
+def get_irr(start_date, end_date, lat, lon, timestep, 
+        timestep_unit, timezone):
+    #define the location
+    site = Location(lat, lon, tz=timezone)
+
+    #get the time range 
+    times = pd.date_range(start=f'{start_date} 00:00', end=f'{end_date} 23:59',
+        freq=f'{timestep}{timestep_unit}', tz=timezone)
+
+    print(timezone)
+
+    #get the irradiance of the clearsky
+    clearsky = site.get_clearsky(times)
+
+    #synthetic temperature replace later with real temp
+    hours = times.hour + times.minute/60
+    ambient_temp = 20 + 10 * np.sin((hours-6)/24 * 2 * np.pi)
+
+    #use DNI (assume panels track the sun)
+    dni_info = clearsky["dni"]
+    
+    df = pd.DataFrame({
+        'dni': dni_info,
+        'temp': ambient_temp
+    })
+
+    return df
+        
+def set_shade_at_time(time, panel_dict, file_dict):
+    time = time.strftime('%d/%m/%Y %H:%M:%S')
+    try:
+        pixels = file_dict[time]
+        for pixel in pixels:
+            cells = panel_dict[pixel]
+            for cell in cells:  
+                cell.set_shade(irr=100)
+
+        output = "shade set succesfully"
+    except Exception as e:
+        output = f'Failed due to {e}'
+        raise
+
+    return output
+
+#given a certain time returns the pixels that are shaded at that time
+def get_shade_at_time(time, df):
+    d_format = "%d/%m/%Y %H:%M:%S"
+    in_range = df[
+        (df["First Shadow Timestamp"] <= time) &
+        (df["Last Shadow Timestamp"] >= time)
+    ]
+
+    return in_range
+
+def _key_from_floats(*numbers, prec=2):
+    return "|".join(f"{x:.{prec}g}" for x in numbers)
+
+def _floats_from_key(key: str):
+    return tuple(float(x) for x in key.split("|"))

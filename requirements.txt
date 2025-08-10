@@ -1,0 +1,11 @@
+numpy
+pandas
+pvlib
+matplotlib
+numpy
+scipy
+pytz
+Flask
+Flask-SQLAlchemy
+Pillow
+timezonefinder

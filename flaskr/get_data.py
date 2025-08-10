@@ -115,7 +115,7 @@ def library_conditions(panel_name, G, T):
         return Iph, Is, n, Rs/Ns, Rp/Ns
     except Exception as e:
         print(f'{panel_name} not in library: {e}')
-        return None, None, None, None, None
+        raise
 
 #builds a database of panels at standard conditions
 def build_database_mod():
