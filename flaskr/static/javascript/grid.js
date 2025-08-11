@@ -1,40 +1,77 @@
-//builds the grid when data is available
-function buildGrid() {
-    const table = document.getElementById('grid');
-
-    if (!table) {
-        console.log('Table not found');
-    }
-
-    const numRows = parseInt(table.dataset.numRows);
-
-    if (!numRows || numRows <= 0) {
-        console.log('No valid num_rows found in data attribute:', table.dataset.numRows);
-        return;
-    }
-
-    table.innerHTML = '';
-
-    for (let r=0; r<numRows; r++) {
-        const row = document.createElement('tr');
-        
-        for (let c = 0; c < 6; c++) {
-            const cell = document.createElement('td');
-            cell.textContent = `${r+1},${c+1}`;
-            
-            // Add click handler for toggling clicked state
-            cell.addEventListener('click', () => {
-                cell.classList.toggle('clicked');
+async function buildData(formData=null) {
+    try {
+        console.log("Form data",formData)
+        let buildResponse;
+        if (formData) {
+            buildResponse = await fetch('/build_data', {
+                method: 'POST',
+                body: formData
             });
-            
-            row.appendChild(cell);
+        } else {
+            buildResponse = await fetch('/build_data', {
+                method: 'POST'
+            });
         }
-        
-        table.appendChild(row);
+
+        const data = await buildResponse.json();
+
+        console.log("Response data",data)
+
+        const tbody = document.querySelector('#panel-table tbody')
+        tbody.innerHTML = '';
+
+        data.forEach(panel => {
+            const row = document.createElement('tr');
+            
+            //creating cells
+            ['name', 'length', 'width', 'cells', 'power'].forEach(key=> {
+                const cell = document.createElement('td');
+                cell.textContent = panel[key];
+                cell.contentEditable = (key !== 'name');
+                row.appendChild(cell);
+            });
+
+            //select a single row - removing prev selection
+            row.addEventListener('click', () => {
+                tbody.querySelectorAll('tr.selected').forEach(r => r.classList.remove('selected'));
+                row.classList.add('selected');
+                console.log('Selected panel:', panel.name);
+            });
+
+            tbody.appendChild(row);
+        });
+    } catch (error) {
+        console.error('Failed to load data: ',error);
     }
+
 }
 
-//calls build when the page loads
-document.addEventListener('DOMContentLoaded', function() {
-    buildGrid();
-});
+async function filterTable() {
+    const formData = new FormData(document.getElementById('filterForm'));
+    buildData(formData);
+}
+
+async function calcPower() {
+    //empty form data to add to
+    const formData = new FormData();
+    const tbody = document.querySelector('#panel-table tbody')
+    tbody.querySelectorAll('tr.selected').forEach(row => {
+        const panelName = row.cells[0].textContent;
+        formData.append('panel_name', panelName);
+        console.log("Name is ", panelName);
+    });
+
+    const powerResponse = await fetch('/calc_power', {
+        method: 'POST',
+        body: formData
+    });
+
+    const powerData = await powerResponse.json();
+
+    tbody.querySelectorAll('tr.selected').forEach(row => {
+        row.cells[4].textContent = powerData.power
+    });
+    
+}
+
+window.onload = buildData;

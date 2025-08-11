@@ -538,7 +538,7 @@ class Bypass_Diode():
 
 #models the panels as a collection of modules
 class Panel():
-    def __init__(self, initial_conditions, panel_name, module_count=3, cell_per_module=18, row_per_module=2,):
+    def __init__(self, initial_conditions, panel_name, module_count=3, cell_per_module=18, row_per_module=2):
         
         self.module_count = module_count
         self.cell_per_module = cell_per_module
@@ -590,6 +590,19 @@ class Panel():
 
         return sum_v, unshaded_count, unshaded_val
 
+    def voltage_modelling(self, I):
+        sum_v = 0
+        for i, module in enumerate(self.module_list):
+            values = self.load_dict(module)
+
+            if self.short_circuits[i] < I or I > values[0]:
+                module.activate_bypass()
+                sum_v += -0.7
+            else:
+                sum_v += module.get_voltage(I, values)
+        
+        return sum_v
+
         #store the total parameters per module in the dictionary
     def store_dict(self, module, *values):
         self.module_conditions[module] = values
@@ -600,11 +613,12 @@ class Panel():
     
     #models currents against voltage to get max power
     def model_power(self, draw_graph=False):
+        self.set_short_circuits()
         #finds max current to test
         max_I = self.get_max_iph()
 
-        currents = np.linspace(0, max_I, 20)
-        voltages = [self.voltage_summation(I) for I in currents]
+        currents = np.linspace(0, self.short_circuits[0], 5)
+        voltages = [self.voltage_modelling(I) for I in currents]
         powers = [V*I for V, I in zip(voltages, currents)]
 
         max_index = np.argmax(powers)
@@ -612,6 +626,8 @@ class Panel():
 
         if draw_graph:
             hp.draw_graph(powers, voltages, currents)
+
+        return Pmax, Vmp, Imp
 
     def set_db(self, hash_db):
         for module in self.module_list:

@@ -84,7 +84,7 @@ async function submitBuildString() {
                 placeholder.style.display = 'none';
                 
                 // Update string info section
-                updateStringInfo(formData);
+                updateStringInfo(formData, buildData.power);
                 
                 showStatus('String built successfully!', 'success');
             } else {
@@ -100,7 +100,7 @@ async function submitBuildString() {
 }
 
 // Update string information display
-function updateStringInfo(formData) {
+function updateStringInfo(formData, power) {
     const stringInfoDiv = document.getElementById('string-info');
     const panelName = formData.get('panel_name') || 'Unknown Panel';
     const panelCount = formData.get('panel_count') || '0';
@@ -116,9 +116,10 @@ function updateStringInfo(formData) {
             </div>
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
                 <div><strong>Panel Count:</strong><br>${panelCount}</div>
-                <div><strong>Rotation:</strong><br>${rotation}°</div>
+                <div><strong>Max Panel Power:</strong><br>${power}W</div>
             </div>
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                <div><strong>Rotation:</strong><br>${rotation}°</div>
                 <div><strong>X Position:</strong><br>${xCoord}</div>
                 <div><strong>Y Position:</strong><br>${yCoord}</div>
             </div>

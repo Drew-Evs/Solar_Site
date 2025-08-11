@@ -34,6 +34,7 @@ class PanelInfo(db.Model):
     width = db.Column(db.Float)
     num_cells = db.Column(db.Integer)
     num_diodes = db.Column(db.Integer)
+    max_power = db.Column(db.Float)
 
 
 class EnvironmentalData(db.Model):

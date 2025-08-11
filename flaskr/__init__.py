@@ -2,8 +2,10 @@ import os
 
 from flask import Flask
 from flask_sqlalchemy import SQLAlchemy
+from flask_migrate import Migrate
 
 db = SQLAlchemy()
+migrate = Migrate()
 
 #creates the app
 def create_app(test_config=None):
@@ -16,6 +18,7 @@ def create_app(test_config=None):
     clear_uploads_folder(app)
 
     db.init_app(app)
+    migrate.init_app(app, db)
 
     if test_config is None:
         app.config.from_pyfile('config.py', silent=True)
