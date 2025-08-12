@@ -73,10 +73,10 @@ class Solar_Cell():
     #checks temperature in an acceptable range (0-75)
     def set_temp(self, temp):
         try:
-            if 10<=temp<=50:
+            if -15<=temp<=75:
                 self.ACTUAL_CONDITIONS[5] = temp
             else:
-                raise ValueError("Temp between 0 and 75 celcius")
+                raise ValueError("Temp between -15 and 75 celcius")
         except ValueError as e:
             print(e)
 
@@ -593,13 +593,16 @@ class Panel():
     def voltage_modelling(self, I):
         sum_v = 0
         for i, module in enumerate(self.module_list):
-            values = self.load_dict(module)
-
-            if self.short_circuits[i] < I or I > values[0]:
-                module.activate_bypass()
+            if module.shaded == True:
                 sum_v += -0.7
             else:
-                sum_v += module.get_voltage(I, values)
+                values = self.load_dict(module)
+
+                if self.short_circuits[i] < I or I > values[0]:
+                    module.activate_bypass()
+                    sum_v += -0.7
+                else:
+                    sum_v += module.get_voltage(I, values)
         
         return sum_v
 
@@ -760,17 +763,7 @@ class Solar_String():
 
                 print(f"Panel {i} initiated")
 
-            # #opens the hash table for updating cells
-            # self.create_hash_c()
-            # self.create_hash_isc()
-            # for panel in self.panel_list:
-            #     panel.set_db_c(self.c_hash_db, self.isc_hash_db)
-
-            # #and for voltage
-            # self.create_hash_v()
-            # for panel in self.panel_list:
-            #     panel.set_db(self.v_hash_db)
-            #     panel.set_short_circuits()
+            self.voltage_offset = None
 
         except Exception as e:
             print(f'Cant build that solar panel missing data - {e}')
@@ -811,7 +804,10 @@ class Solar_String():
             currents = list(np.linspace(0, max_I, 15))
             voltages = [self.get_voltage(I) for I in currents]
             
-            results = [(i, v) for i, v in zip(currents, voltages)]
+            results = [
+                    (i, v*self.voltage_offset if self.voltage_offset is not None else v) 
+                    for i, v in zip(currents, voltages)
+                ]
             #need to unpack from results
             powers = [v * i for i, v in results]    
 
@@ -827,8 +823,6 @@ class Solar_String():
         except Exception as e:
             print(f'error in modelling power: {e}')
             return 0, 0, 0
-
-        #returns the four points of the solar string
     
     #gets the 4 points of the solar string
     def get_points(self):
@@ -852,52 +846,6 @@ class Solar_String():
         base_array = [tl, tr, br, bl]
         converted = [(float(x), float(y)) for x, y in base_array]
         return converted
-
-    #opens hash table for voltages
-    def create_hash_v(self):
-        #creates folder if doesn't exist
-        folder = Path("./voltage_hash_tables")
-        folder.mkdir(exist_ok=True)
-
-        #get path to folder 
-        panel_lookup = f'{self.panel_name}_lookup'
-        self.hash_filename = str(folder / panel_lookup)
-
-        #initiate db
-        self.v_hash_db = shelve.open(self.hash_filename, flag="c", protocol=None, writeback=False)
-    
-    #opens a similar hash table for 
-    def create_hash_c(self):
-        #creates folder if doesn't exist
-        folder = Path("./cell_hash_tables")
-        folder.mkdir(exist_ok=True)
-
-        #get path to folder 
-        panel_lookup = f'{self.panel_name}_lookup'
-        self.hash_filename = str(folder / panel_lookup)
-
-        #initiate db
-        self.c_hash_db = shelve.open(self.hash_filename, flag="c", protocol=None, writeback=False)
-
-    #opens a similar hash table for short circuits
-    def create_hash_isc(self):
-        #creates folder if doesn't exist
-        folder = Path("./isc_hash_tables")
-        folder.mkdir(exist_ok=True)
-
-        #get path to folder 
-        panel_lookup = f'{self.panel_name}_lookup'
-        self.hash_filename = str(folder / panel_lookup)
-
-        #initiate db
-        self.isc_hash_db = shelve.open(self.hash_filename, flag="c", protocol=None, writeback=False)
-
-    def close(self):
-        #close the hash db and the lru cache
-        for panel in self.panel_list:
-            panel.close_cache()
-        self.v_hash_db.close()
-        self.c_hash_db.close()
 
     #needs a way to test if bypasses should be activated
     def set_bypasses(self, I):

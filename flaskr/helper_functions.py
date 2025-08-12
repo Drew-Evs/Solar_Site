@@ -12,6 +12,8 @@ from flask import current_app
 from . import db
 from timezonefinder import TimezoneFinder
 import numpy as np
+import requests
+from zoneinfo import ZoneInfo
 
 #use pvlib to find irradiance and temperature of longitude and latitude for a day
 def get_info(start, end, lat, long):
@@ -292,7 +294,7 @@ def file_pixel_dict(filename, start_date, end_date, timestep):
         pixel_dict[datetime.strftime(time, d_format)] = pixel_arr
 
         time += timestep
-    
+
     return pixel_dict
 
 def get_times(filename): 
@@ -340,17 +342,63 @@ def get_irr(start_date, end_date, lat, lon, timestep,
     #get the irradiance of the clearsky
     clearsky = site.get_clearsky(times)
 
-    #synthetic temperature replace later with real temp
-    hours = times.hour + times.minute/60
-    ambient_temp = 20 + 10 * np.sin((hours-6)/24 * 2 * np.pi)
+    #get the solar position
+    solpos = site.get_solarposition(times)
 
-    #use DNI (assume panels track the sun)
-    dni_info = clearsky["dni"]
+    #direct normal irr/diffuse horizontal/global horizontal 
+    #direct from sun
+    #sunlight coming horizontal after being scattered
+    #total irradiance on a horizontal surface (combine with angle)
+    dni = clearsky["dni"]
+    dhi = clearsky['dhi']
+    ghi = clearsky['ghi']
+
+    #this assumes that the panels track perfactly, where the tilt is the solar zenith
+    surface_tilt = 90 - solpos['apparent_elevation'] #tilt perpendicular to the suns rays (suns elevation)
+    surface_azimuth = solpos['azimuth'] #sets panel horizontal to the suns current direction
+
+    #using pvlib to get total irradiance on a panel
+    poa = pvlib.irradiance.get_total_irradiance(
+        surface_tilt=surface_tilt,
+        surface_azimuth=surface_azimuth,
+        dni=dni,
+        ghi=ghi,
+        dhi=dhi,
+        solar_zenith=solpos['apparent_zenith'],
+        solar_azimuth=solpos['azimuth'],
+        albedo=0.2
+    )
+
+    #get the high and low temperature 
+    month = start_date.strftime('%m')
+    print(month)
+
+    t_high, t_low = get_avg_temp(lat, lon, month)
+    #get the mean and difference from mean (amplitude)
+    t_avg = (t_high + t_low)/2
+    amp = (t_high - t_low)/2
+
+    #assume min temp at 3am and max at 3pm
+    time_low = 3
+
+    temps = []
+
+    for time in times:
+        #get the hour of the day
+        hour = time.hour + time.minute/60
+
+        #take the averaga and sin curve deviation to get a synethic time curve
+        angle = ((hour-time_low)/24) * 2 * np.pi - (np.pi/2) #shift by -pi/2
+        temp = t_avg + amp * np.sin(angle)
+        temps.append(temp)
+
+    ambient_temp = pd.Series(temps, index=times)
+
     
     df = pd.DataFrame({
-        'dni': dni_info,
+        'irr': poa['poa_global'],
         'temp': ambient_temp
-    })
+    }, index=times)
 
     return df
         
@@ -385,3 +433,63 @@ def _key_from_floats(*numbers, prec=2):
 
 def _floats_from_key(key: str):
     return tuple(float(x) for x in key.split("|"))
+
+#using nasa api to request temperature infromation for a year 
+def get_avg_temp(lat=24, lon=69, month='01'):
+
+    start_year = 2019
+    end_year = 2020
+
+    #use nasa power parameters
+    #t2m_max is max and t2m_min min
+    params = ["T2M_MAX", "T2M_MIN"]
+
+    #the api url to request data from
+    url = (
+        f"https://power.larc.nasa.gov/api/temporal/monthly/point"
+        f"?parameters={','.join(params)}"
+        f"&community=AG"
+        f"&longitude={lon}&latitude={lat}"
+        f"&start={start_year}&end={end_year}"
+        f"&format=JSON"
+    )
+
+    print("Fetching data")
+    response = requests.get(url)
+    data = response.json()
+
+    records = []
+    for date_str, values in data['properties']['parameter']['T2M_MAX'].items():
+        records.append({
+            'YearMonth': date_str,
+            'Tmax': values,
+            'Tmin': data['properties']['parameter']['T2M_MIN'][date_str]
+        })
+
+
+    #build a sin curve of temperatures between a low at 3am and a high at 3pm
+    filtered_records = []
+    for record in records:
+        if record['YearMonth'] == f'2019{month}':
+            filtered_records.append(record)
+
+    #get the high and low 
+    t_high = record['Tmax']
+    t_low = record['Tmin']
+
+    print(f'high is {t_high}, low is {t_low}')
+    
+    return t_high, t_low
+
+
+if __name__ == "__main__":
+    start_date = datetime.now()
+    end_date = datetime.now() + timedelta(days=1)
+    lat = 24
+    lon = 69
+    unit = 'hours'
+    time_int = 1
+    timezone = ZoneInfo(get_timezone(lat, lon))
+    timestep = timedelta(**{unit: time_int})
+    t_unit='h'
+    print(get_irr(start_date, end_date, lat, lon, time_int, t_unit, timezone))

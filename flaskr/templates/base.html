@@ -158,6 +158,43 @@
         cursor: not-allowed;
         transform: none;
       }
+      
+      .button-secondary {
+        background: linear-gradient(135deg, #e0e0e0 0%, #bdbdbd 100%);
+        color: #333;
+        border: 1.5px solid #999;
+        padding: 0.5rem 1rem;
+        border-radius: 6px;
+        font-size: 0.9rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.3rem;
+        min-height: 32px;
+      }
+
+      .button-secondary:hover {
+        background: linear-gradient(135deg, #d6d6d6 0%, #aaaaaa 100%);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        transform: translateY(-1px);
+      }
+
+      .button-secondary:active {
+        transform: translateY(0);
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+      }
+
+      .button-secondary:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+        transform: none;
+        box-shadow: none;
+      }
+
 
       /* Loading Spinner */
       .loading-spinner {

@@ -213,6 +213,10 @@ def build_database():
     build_database_inverter()
     build_database_mod()
 
+def attempt():
+    sand_modules = pvlib.pvsystem.retrieve_sam(path='/workspaces/Solar_Site/PV_Module_List_Full_Data_ADA.xlsx')
+    print(sand_modules.keys())
+    #print([model for model in sand_modules.keys() if 'KM550' in model])
 
 if __name__ == "__main__":
-    build_database_mod()
+    attempt()

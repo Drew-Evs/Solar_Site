@@ -110,18 +110,26 @@ function updateStringInfo(formData, power) {
     
     stringInfoDiv.innerHTML = `
         <div style="width: 100%;">
-            <div style="margin-bottom: 1rem;">
-                <strong>Panel Model:</strong><br>
-                <span style="font-size: 0.9rem; color: #666;">${panelName}</span>
-            </div>
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
-                <div><strong>Panel Count:</strong><br>${panelCount}</div>
-                <div><strong>Max Panel Power:</strong><br>${power}W</div>
-            </div>
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
-                <div><strong>Rotation:</strong><br>${rotation}°</div>
-                <div><strong>X Position:</strong><br>${xCoord}</div>
-                <div><strong>Y Position:</strong><br>${yCoord}</div>
+            <form id="PEForm">
+                <div style="margin-bottom: 1rem;">
+                    <strong>Panel Model:</strong><br>
+                    <span style="font-size: 0.9rem; color: #666;">${panelName}</span>
+                </div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
+                    <div><strong>Panel Count:</strong><br>${panelCount}</div>
+                    <div id="original-power"><strong>Max Panel Power:</strong><br>${power}W</div>
+                    <div><strong>Expected Power:</strong><br><button type="button" class="button-secondary" onclick="editPower()" id="update-power-button">
+                    <span id="edit-button-text">Alter Power</span></button></div>
+                    <div class="input-group">
+                        <label for="update_power" style="font-weight: 700;">Actual Power:</label>
+                        <input type="number" id="update_power" name="update_power" min="10" max="1000" step="1" value="{{ update_power or 0 }}">
+                    </div>
+                </div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                    <div><strong>Rotation:</strong><br>${rotation}°</div>
+                    <div><strong>X Position:</strong><br>${xCoord}</div>
+                    <div><strong>Y Position:</strong><br>${yCoord}</div>
+                </form>
             </div>
         </div>
     `;
@@ -394,6 +402,7 @@ function updateRealTimeData(data) {
     const irrLabel = document.getElementById('irradiance-val');
     const pLabel = document.getElementById('power-val');
     const tLabel = document.getElementById('time-val');
+    const cLabel = document.getElementById('temp-val');
     
     if (irrLabel && data.e_info !== undefined) {
         irrLabel.innerHTML = `${data.e_info} W/m²`;
@@ -405,6 +414,10 @@ function updateRealTimeData(data) {
     
     if (tLabel && data.time !== undefined) {
         tLabel.innerHTML = data.time;
+    }
+
+    if (tLabel && data.temp !== undefined) {
+        cLabel.innerHTML = `${data.temp} °C`;
     }
 }
 
@@ -598,4 +611,30 @@ function formatFileSize(bytes) {
     const sizes = ['Bytes', 'KB', 'MB', 'GB'];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+}
+
+async function editPower() {
+    const form = document.getElementById('PEForm');
+    const formData = new FormData(form);
+
+    //get the new and original power
+    const newPower = formData.get('update_power');
+    const powerDiv = document.getElementById('original-power');
+    //needs to remove the w - matches numbers
+    const powerText = powerDiv.textContent || powerDiv.innerText;
+    const powerNumber = powerText.match(/[\d.]+/)[0];  
+    const originalPower = parseFloat(powerNumber);       
+
+    formData.append('original_power', originalPower)
+
+    const updateResponse = await fetch('/update_power', {
+        method: 'POST',
+        body: formData
+    });
+
+    const updateData = await updateResponse.json();
+
+    if (updateData.status === "success") {
+        powerDiv.innerHTML = `<div id="original-power"><strong>Max Panel Power:</strong><br>${updateData.new_power}W</div>`
+    }
 }

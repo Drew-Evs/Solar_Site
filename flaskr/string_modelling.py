@@ -18,6 +18,7 @@ from memory_profiler import memory_usage
 import tracemalloc
 import cProfile, pstats, io
 import matplotlib.dates as mdates
+import uuid
 
 sm = Blueprint('string_modelling', __name__)
 
@@ -130,7 +131,7 @@ def build_string():
         _instance.reset(950, 25)
         max_power, Vmp, Imp = _instance.panel_list[0].model_power()
         place_pixels()
-        return jsonify({"status": "success", "power": max_power})
+        return jsonify({"status": "success", "power": hp.round_sf(max_power)})
 
     except Exception as e:
         print(f'Exception is {e}')
@@ -241,7 +242,7 @@ def generate(_instance, timestep, p_filename, start_date, end_date,
                     continue
                 
                 try:
-                    irr = row['dni']
+                    irr = row['irr']
                     temp = row['temp']
                 except Exception as e:
                     print(f'Finally failed due to {e}')
@@ -277,9 +278,10 @@ def generate(_instance, timestep, p_filename, start_date, end_date,
                     Pmax, Vmp, Imp = local_instance.model_power()
                     
                     data = {
-                        'pmax': float(Pmax) if Pmax is not None else 0.0,
-                        'e_info': float(irr) if irr is not None else 0.0,
+                        'pmax': hp.round_sf(float(Pmax)) if Pmax is not None else 0.0,
+                        'e_info': hp.round_sf(float(irr)) if irr is not None else 0.0,
                         'time': time_str,
+                        'temp': hp.round_sf(temp),
                         'id': iteration_count
                     }
 
@@ -393,6 +395,18 @@ def save_shade_file():
         return jsonify({"filename": file.filename})
     return jsonify({"error": "No file uploaded"}), 400
 
+@sm.route("/update_power", methods=['POST'])
+def update_power():
+    global _instance
+
+    original_power = float(request.form.get('original_power'))
+    new_power = float(request.form.get('update_power'))
+
+    voltage_offset = new_power/original_power
+
+    _instance.voltage_offset = voltage_offset
+
+    return jsonify({"status": "success", "new_power": new_power})
 
 #draws graphs of over time
 def draw_graph(start_date, end_date, lat, lon, panel_name):
@@ -444,6 +458,9 @@ def draw_graph(start_date, end_date, lat, lon, panel_name):
     # Recreate the (now empty) directory
     os.makedirs(output_dir)
 
+    #create a unique id so to avoid using browser caching
+    unique_id = uuid.uuid4().hex
+
     plot_paths = []
 
     #creates the graphs and saves them to the plot
@@ -461,8 +478,8 @@ def draw_graph(start_date, end_date, lat, lon, panel_name):
     plt.legend()
     plt.tight_layout()
 
-    power_vs_time_path = os.path.join(output_dir, f'{start_date}_{end_date}_P.png')
-    web_path = os.path.join(web_dir, f'{start_date}_{end_date}_P.png')
+    power_vs_time_path = os.path.join(output_dir, f'{start_date}_{end_date}_{unique_id}P.png')
+    web_path = os.path.join(web_dir, f'{start_date}_{end_date}_{unique_id}P.png')
     plt.savefig(power_vs_time_path)
     plt.close()
     plot_paths.append(web_path)
@@ -481,8 +498,8 @@ def draw_graph(start_date, end_date, lat, lon, panel_name):
     plt.legend()
     plt.tight_layout()
 
-    voltage_vs_time_path = os.path.join(output_dir, f'{start_date}_{end_date}_V.png')
-    web_path = os.path.join(web_dir, f'{start_date}_{end_date}_V.png')
+    voltage_vs_time_path = os.path.join(output_dir, f'{start_date}_{end_date}_{unique_id}V.png')
+    web_path = os.path.join(web_dir, f'{start_date}_{end_date}_{unique_id}V.png')
     plt.savefig(voltage_vs_time_path)
     plt.close()
     plot_paths.append(web_path)
@@ -501,8 +518,8 @@ def draw_graph(start_date, end_date, lat, lon, panel_name):
     plt.legend()
     plt.tight_layout()
 
-    current_vs_time_path = os.path.join(output_dir, f'{start_date}_{end_date}_I.png')
-    web_path = os.path.join(web_dir, f'{start_date}_{end_date}_I.png')
+    current_vs_time_path = os.path.join(output_dir, f'{start_date}_{end_date}_{unique_id}I.png')
+    web_path = os.path.join(web_dir, f'{start_date}_{end_date}_{unique_id}I.png')
     plt.savefig(current_vs_time_path)
     plt.close()
     plot_paths.append(web_path)
