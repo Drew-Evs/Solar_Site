@@ -371,7 +371,7 @@ async function handleMessage(data) {
 
         case 'graphs_ready':
             console.log("Graphs ready", data.graphs);
-            displayGraphs(data.graphs);
+            displayGraphs(data.graphs, data.shadedPower, data.unshadedPower);
             showStatus("Graphs generated successfully!", 'success');
             return;
 
@@ -422,9 +422,11 @@ function updateRealTimeData(data) {
 }
 
 // Display generated graphs
-function displayGraphs(graphPaths) {
+function displayGraphs(graphPaths, shadedPower, unshadedPower) {
     let graphContainer = document.getElementById('graph-container');
     let graphGrid = document.getElementById('graph-grid');
+    const powerInfoDiv = document.createElement('div');
+    powerInfoDiv.innerHTML = ''
     
     // Clear existing graphs
     graphGrid.innerHTML = '';
@@ -462,6 +464,32 @@ function displayGraphs(graphPaths) {
         graphDiv.appendChild(img);
         graphGrid.appendChild(graphDiv);
     });
+
+    //add the power info to the bottom
+    powerInfoDiv.className = "grid-item";
+
+    powerInfoDiv.innerHTML = `
+    <h2 class="section-title">⚡ Power Information</h2>
+    <div style="display: flex; align-items: flex-start; justify-content: space-around; width: 100%; padding: 20px; color: #666; font-style: italic;">
+        <div style="text-align: center;">
+            <div style="margin-bottom: 2rem; font-size: 1.2rem;">
+                <strong>Shaded Power Output:</strong><br>
+                <span style="font-size: 1.4rem; color: #333;">${shadedPower} kWh</span>
+            </div>
+        </div>
+        <div style="text-align: center;">
+            <div style="margin-bottom: 2rem; font-size: 1.2rem;">
+                <strong>Unshaded Power Output:</strong><br>
+                <span style="font-size: 1.4rem; color: #333;">${unshadedPower} kWh</span>
+            </div>
+        </div>
+    </div>
+    `;
+    powerInfoDiv.style.color = '#333';
+    powerInfoDiv.style.fontStyle = 'normal';
+
+    //add it to the graph container
+    graphContainer.appendChild(powerInfoDiv);
 
     // Show the graph container
     graphContainer.style.display = 'block';

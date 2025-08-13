@@ -46,6 +46,25 @@ def clear_moduledata():
 
         db.session.commit()
 
+def add_noct():
+    app = create_app()
+    with app.app_context():
+        cec_modules = pvlib.pvsystem.retrieve_sam('CECMod')
+        print(cec_modules.index) 
+
+        for name in cec_modules:
+            module = cec_modules[name]
+
+            noct = module['T_NOCT']
+
+            record = PanelInfo.query.filter_by(
+                panel_name=name
+            ).first()
+            record.noct = noct
+
+            print(f'To {name} added noct: {noct}')
+        
+        db.session.commit()
 
 if __name__ == "__main__":
-    clear_moduledata()
+    add_noct()

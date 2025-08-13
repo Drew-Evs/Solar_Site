@@ -60,10 +60,104 @@
         <span>Save Edit</span>
       </button>
     </form>
-    
-    <div class="input-container">
-      <button id="generate" type="submit">Create Panel</button>
+
+<div class="grid-item">
+  <h2 class="section-title">Create Panel</h2>
+  <p>At Reference Conditions - See Data Sheet</p>
+  <div id="panel-info" style="display: flex; align-items: center; justify-content: center; height: 100%; color: #666; font-style: italic;">
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
+      <form id="newForm">
+        <!-- Name of the panel -->
+        <div class="input-group">
+          <label for="panel_name" style="font-weight: 700;">Name of the Panel:</label>
+          <input type="text" id="panel_name" name="panel_name" min="0" max="0.01" step="0.0001" value="{{ panel_name or '' }}">
+        </div>
+
+        <!-- Temperature coefficient of ISC -->
+        <div class="input-group">
+          <label for="alpha_sc" style="font-weight: 700;">Temperature Coefficient of ISC (%/°C):</label>
+          <input type="number" id="alpha_sc" name="alpha_sc" min="1" max="1" step="0.0001" value="{{ alpha_sc or 0.004 }}">
+        </div>
+
+        <div class="input-group">
+          <label for="gamma_pmp" style="font-weight: 700;">Temperature Coefficient of PMP (%/°C):</label>
+          <input type="number" id="gamma_pmp" name="gamma_pmp" min="-1" max="1" step="0.0001" value="{{ gamma_pmp or 0.004 }}">
+        </div>
+
+        <div class="input-group">
+          <label for="beta_voc" style="font-weight: 700;">Temperature Coefficient of VOC (%/°C):</label>
+          <input type="number" id="beta_voc" name="beta_voc" min="-1" max="1" step="0.0001" value="{{ beta_voc or 0.004 }}">
+        </div>
+        
+        <!-- Open-circuit voltage -->
+        <div class="input-group">
+          <label for="Voc" style="font-weight: 700;">Open-Circuit Voltage (Voc) [V]:</label>
+          <input type="number" id="Voc" name="Voc" min="0" max="100" step="0.1" value="{{ Voc or 40 }}">
+        </div>
+
+        <!-- Short-circuit current -->
+        <div class="input-group">
+          <label for="Isc" style="font-weight: 700;">Short-Circuit Current (Isc) [A]:</label>
+          <input type="number" id="Isc" name="Isc" min="0" max="15" step="0.01" value="{{ Isc or 8 }}">
+        </div>
+
+        <!-- Voltage at maximum power point -->
+        <div class="input-group">
+          <label for="Vmp" style="font-weight: 700;">Voltage at Maximum Power Point (Vmp) [V]:</label>
+          <input type="number" id="Vmp" name="Vmp" min="0" max="100" step="0.1" value="{{ Vmp or 32 }}">
+        </div>
+
+        <!-- Current at maximum power point -->
+        <div class="input-group">
+          <label for="Imp" style="font-weight: 700;">Current at Maximum Power Point (Imp) [A]:</label>
+          <input type="number" id="Imp" name="Imp" min="0" max="15" step="0.01" value="{{ Imp or 7.5 }}">
+        </div>
+
+        <!-- Panel length -->
+        <div class="input-group">
+          <label for="panel_length" style="font-weight: 700;">Panel Length (m):</label>
+          <input type="number" id="panel_length" name="panel_length" min="0.5" max="3" step="0.01" value="{{ panel_length or 1.65 }}">
+        </div>
+
+        <!-- Panel width -->
+        <div class="input-group">
+          <label for="panel_width" style="font-weight: 700;">Panel Width (m):</label>
+          <input type="number" id="panel_width" name="panel_width" min="0.3" max="2" step="0.01" value="{{ panel_width or 1 }}">
+        </div>
+
+        <!-- Number of cells -->
+        <div class="input-group">
+          <label for="num_cells" style="font-weight: 700;">Number of Cells:</label>
+          <input type="number" id="num_cells" name="num_cells" min="10" max="200" step="1" value="{{ num_cells or 60 }}">
+        </div>
+
+        <!-- Number of bypass diodes -->
+        <div class="input-group">
+          <label for="num_diodes" style="font-weight: 700;">Number of Bypass Diodes:</label>
+          <input type="number" id="num_diodes" name="num_diodes" min="1" max="12" step="1" value="{{ num_diodes or 3 }}">
+        </div>
+
+        <!-- noct -->
+        <div class="input-group">
+          <label for="noct" style="font-weight: 700;">Nominal Operating Cell Temperature (°C):</label>
+          <input type="number" id="noct" name="noct" min="1" max="12" step="1" value="{{ noct or 25 }}">
+        </div>
+
+        <div class="input-group">
+          <label for="panel_type" style="font-weight: 700;">Panel Type:</label>
+          <select id="panel_type" name="panel_type">
+            <option value="mono">Monosilicon</option>
+            <option value="multi/poly">Polysilicon</option>
+          </select>
+        </div>
+
+        <button type="button" class="button-primary" onclick="newPanel()" style="margin-top: 1rem;">
+          <span>Save Edit</span>
+        </button>
+      </form>
     </div>
+  </div>
+</div>
 
     {% if error %}
       <div class="error" style="color: red; margin: 10px 0;">

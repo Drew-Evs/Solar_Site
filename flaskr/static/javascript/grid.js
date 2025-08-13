@@ -27,7 +27,7 @@ async function buildData(formData=null) {
             ['name', 'length', 'width', 'cells', 'power'].forEach(key=> {
                 const cell = document.createElement('td');
                 cell.textContent = panel[key];
-                cell.contentEditable = (key !== 'name');
+                cell.contentEditable = (key !== 'name' && key !== 'power');
                 row.appendChild(cell);
             });
 
@@ -72,6 +72,25 @@ async function calcPower() {
         row.cells[4].textContent = powerData.power
     });
     
+}
+
+async function newPanel() {
+    const form = document.getElementById('newForm')
+    const formData = new FormData(form)
+
+    const pyResponse = await fetch('/new_panel', {
+            method: 'POST',
+            body: formData
+         });
+    
+    const pyData = await buildResponse.json();
+
+    if (pyData.status === 'success') {
+        console.log(`New panel ${pyData.panelName}`)
+    } else {
+        console.log(`Error with new panel ${pyData.message}`)
+    }
+
 }
 
 window.onload = buildData;

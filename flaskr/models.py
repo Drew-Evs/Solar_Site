@@ -35,6 +35,7 @@ class PanelInfo(db.Model):
     num_cells = db.Column(db.Integer)
     num_diodes = db.Column(db.Integer)
     max_power = db.Column(db.Float)
+    noct = db.Column(db.Float)
 
 
 class EnvironmentalData(db.Model):
@@ -95,3 +96,20 @@ class CellLookup(db.Model):
         db.Index('cell_key_lookup', 'panel_name', 'key'),
     )
 
+
+class CustomPanel(db.Model):
+    __tablename__ = "custom_panel"
+
+    id = db.Column(db.Integer, primary_key=True)
+    panel_name = db.Column(db.String(200), nullable=False)
+    alpha_sc = db.Column(db.Float, nullable=False)
+    a_ref = db.Column(db.Float, nullable=False)
+    i_l_ref = db.Column(db.Float, nullable=False)
+    i_o_ref = db.Column(db.Float, nullable=False)
+    r_sh_ref = db.Column(db.Float, nullable=False)
+    r_s = db.Column(db.Float, nullable=False)
+    num_cells = db.Column(db.Integer)
+    
+    __table_args__ = (
+        db.Index('custom_panel_lookup', 'panel_name'),
+    )

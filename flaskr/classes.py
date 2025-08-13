@@ -61,12 +61,11 @@ class Solar_Cell():
             raise ValueError("No cached record")
 
     #takes an input of a shade level and returns the correct irradiance
-    def set_shade(self, irr):
+    def set_shade(self, irr, temp):
         try:
+            self.ACTUAL_CONDITIONS[5] = temp
             self.ACTUAL_CONDITIONS[6] = irr
             self.set_library_conditions()
-            if self.parent:
-                self.parent.update_shaded(True)
         except Exception as e:
             print("Shading level incorrect: ", e)
 
@@ -536,6 +535,16 @@ class Bypass_Diode():
         
         return current
 
+    #rearranged to find the voltage
+    def find_voltage(self, I):
+        q = 1.6e-19
+        k = 1.38e-23
+
+        Isbd, nbd, Tbd = self.get_params()
+
+        voltage = (nbd * k * Tbd / q) * np.log(I / Isbd + 1)
+        return voltage
+
 #models the panels as a collection of modules
 class Panel():
     def __init__(self, initial_conditions, panel_name, module_count=3, cell_per_module=18, row_per_module=2):
@@ -580,11 +589,13 @@ class Panel():
                 #test if value already calculated
                 if unshaded_val == None:
                     unshaded_val = module.get_voltage(I, values)
+                continue
 
             #also need to test if Iph is too low values[0] is iph
             if self.short_circuits[i] < I or I > values[0]:
                 module.activate_bypass()
-                sum_v += -0.7
+                sum_v += module.bypass_diode.find_voltage(I)
+                
             else:
                 sum_v += module.get_voltage(I, values)
 
@@ -802,12 +813,12 @@ class Solar_String():
         try:
             max_I = self.get_max_iph()
             currents = list(np.linspace(0, max_I, 15))
-            voltages = [self.get_voltage(I) for I in currents]
+            voltages = [
+                self.get_voltage(I)*self.voltage_offset if self.voltage_offset is not None
+                else self.get_voltage(I) for I in currents
+            ]
             
-            results = [
-                    (i, v*self.voltage_offset if self.voltage_offset is not None else v) 
-                    for i, v in zip(currents, voltages)
-                ]
+            results = [(i, v) for i, v in zip(currents, voltages)]
             #need to unpack from results
             powers = [v * i for i, v in results]    
 
@@ -866,14 +877,13 @@ class Solar_String():
             num += panel.module_count
         return output
 
-    def reset(self, irr=100, temp=25):
+    def reset(self, irr, temp):
         try:
             for panel in self.panel_list:
                 for module in panel.module_list:
-                    for cell in module.cell_list:
-                        cell.set_temp(temp)
-                        cell.set_shade(irr)
                     module.update_shaded(False)
+                    for cell in module.cell_list:
+                        cell.set_shade(irr, temp)
                 panel.set_short_circuits()
 
                 output = 'reset succesfully'

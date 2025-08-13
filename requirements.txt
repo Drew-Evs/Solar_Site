@@ -10,3 +10,4 @@ Flask-SQLAlchemy
 Pillow
 timezonefinder
 memory_profiler
+NREL-PySAM

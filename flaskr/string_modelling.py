@@ -64,7 +64,18 @@ def upload_file():
 
 @sm.route('/place_pixels', methods=['POST'])
 def place_pixels():
+    #create a unique id so to avoid using browser caching
+    unique_id = uuid.uuid4().hex
     try:
+        output_dir = f'flaskr/static/outputs'
+
+        # Delete the entire directory if it exists
+        if os.path.exists(output_dir):
+            shutil.rmtree(output_dir)
+
+        # Recreate the (now empty) directory
+        os.makedirs(output_dir)
+
         panels = PanelInfo.query.with_entities(PanelInfo.panel_name).distinct().all()
         panel_names = [p.panel_name for p in panels]
 
@@ -74,19 +85,12 @@ def place_pixels():
 
         #need to find the image first
         filepath = f"./flaskr/static/uploads"
-        output_dir = f"./flaskr/static/outputs"
-        os.makedirs(output_dir, exist_ok=True)
+
         if os.path.exists(filepath):
             files = sorted(os.listdir(filepath))
             if files:
                 first_file = os.path.join(filepath, files[0])
-                output_path = os.path.join(output_dir, files[0])
-
-        #clear the path first
-        for f in os.listdir(output_dir):
-            file_path = os.path.join(output_dir, f)
-            if os.path.isfile(file_path):
-                os.remove(file_path)
+                output_path = os.path.join(output_dir, f"{unique_id}.png")
 
         #open and draw pixels 
         with Image.open(first_file) as img:
@@ -102,11 +106,11 @@ def place_pixels():
                     img.putpixel((x, y), (0, 0, 255))
                 
             img.save(output_path)
-            print(f'/static/outputs/{files[0]}')
+            print(f'/static/outputs/{unique_id}.png')
 
         return jsonify({
             "status": "success",
-            "image": f"/static/outputs/{files[0]}",  # relative path for web use
+            "image": f"/static/outputs/{unique_id}.png",  # relative path for web use
         })
 
     except Exception as e:
@@ -160,6 +164,7 @@ def time_power_model():
         if last_event_id in (None, '', 'null'):
             open("output_text.log", "w").close()
             open("unshaded_output.log", "w").close()
+            open("shade_log.txt", "w").close()
 
         try:
             last_id = int(last_event_id)
@@ -182,13 +187,18 @@ def time_power_model():
 
         app = current_app._get_current_object()
 
+        record = PanelInfo.query.filter_by(
+            panel_name=_instance.panel_name
+        ).first()
+
+
     except Exception as e:
         print(f"Error due to {e}")
         return Response(f"data: {json.dumps({'error': str(e)})}\n\n", mimetype='text/event-stream')
 
     # Return response with proper headers for SSE
     response = Response(
-        generate(_instance, timestep, p_filename, start_date, end_date, app, dni_df, timezone, last_id, lat, lon), 
+        generate(_instance, timestep, p_filename, start_date, end_date, app, dni_df, timezone, last_id, lat, lon, record.noct), 
         mimetype='text/event-stream',
         headers={
             "Cache-Control": "no-cache",
@@ -199,7 +209,7 @@ def time_power_model():
     return response
 
 def generate(_instance, timestep, p_filename, start_date, end_date,
-        app, dni_df, timezone, last_id, lat, lon):
+        app, dni_df, timezone, last_id, lat, lon, noct):
 
     try:
         local_instance = copy.deepcopy(_instance)
@@ -227,7 +237,7 @@ def generate(_instance, timestep, p_filename, start_date, end_date,
             iteration_count = 0
 
             while time <= end:
-                time_str = time.strftime("%H:%M")
+                time_str = time.strftime("%d:%H:%M")
                 #skips events already done
                 if last_id is not None and iteration_count <= last_id:
                     time += timestep
@@ -244,6 +254,12 @@ def generate(_instance, timestep, p_filename, start_date, end_date,
                 try:
                     irr = row['irr']
                     temp = row['temp']
+
+
+                    #get the average cell temp given shaded/unshaded
+                    unshaded_cell_temp = hp.estimate_temp(temp, noct, irr)
+                    shaded_cell_temp = hp.estimate_temp(temp, noct, 100)
+
                 except Exception as e:
                     print(f'Finally failed due to {e}')
                     #string writing to the output
@@ -266,9 +282,11 @@ def generate(_instance, timestep, p_filename, start_date, end_date,
                 
                 try:
                     #calculate the values like before
-                    _instance.reset(irr, temp)
-                    local_instance.reset(irr, temp)
-                    hp.set_shade_at_time(time, panel_dict, pixel_dict)
+                    _instance.reset(irr, unshaded_cell_temp)
+                    local_instance.reset(irr, unshaded_cell_temp)
+                    hp.set_shade_at_time(time, panel_dict, pixel_dict, local_instance, 
+                        irr, shaded_cell_temp)
+
                 except Exception as e:
                     print(f'Setting shade failed due to {e}')
                     yield f"data: {json.dumps({'error': str(e)})}\n\n"
@@ -290,14 +308,15 @@ def generate(_instance, timestep, p_filename, start_date, end_date,
                     # print(f"Serialized data: {json_data}")
 
                     #string writing to the output
-                    str_out = f'{time_str}|{Pmax}|{Vmp}|{Imp}'
+                    #normalise
+                    str_out = f'{time_str}|{Pmax/1000}|{Vmp}|{Imp}'
 
                     #write to the output
                     with open("output_text.log", "a") as f:
                         f.write(f'{str_out}\n')
 
                     Pmax, Vmp, Imp = _instance.model_power()
-                    str_out = f'{time_str}|{Pmax}|{Vmp}|{Imp}'
+                    str_out = f'{time_str}|{Pmax/1000}|{Vmp}|{Imp}'
 
                     with open("unshaded_output.log", "a") as f:
                         f.write(f'{str_out}\n')
@@ -326,13 +345,14 @@ def generate(_instance, timestep, p_filename, start_date, end_date,
 
         def _draw():
             try:
-                graph_paths = draw_graph(start_date, end_date, lat, 
-                    lon, local_instance.panel_name)
+                graph_paths, shaded, unshaded = draw_graph(start_date, end_date, lat, 
+                    lon, local_instance.panel_name, timestep)
 
                 if graph_paths is None:
                     raise Exception("No graphs formed")
                 
-                graph_queue.put({'success': True, 'paths': graph_paths})
+                graph_queue.put({'success': True, 'paths': graph_paths, 
+                    'shadedPower': shaded, 'unshadedPower': unshaded})
 
             except Exception as e:
                 print(f'Graph drawing failed: {e}')
@@ -355,7 +375,9 @@ def generate(_instance, timestep, p_filename, start_date, end_date,
             if result['success']:
                 graph_data = {
                     'type': 'graphs_ready',
-                    'graphs': result['paths']
+                    'graphs': result['paths'],
+                    'shadedPower': result['shadedPower'],
+                    'unshadedPower': result['unshadedPower']
                 }
                 yield f"data: {json.dumps(graph_data)}\n\n"
             else:
@@ -409,7 +431,7 @@ def update_power():
     return jsonify({"status": "success", "new_power": new_power})
 
 #draws graphs of over time
-def draw_graph(start_date, end_date, lat, lon, panel_name):
+def draw_graph(start_date, end_date, lat, lon, panel_name, timestep):
     results = [[],[],[]]
     times = []
     
@@ -466,11 +488,12 @@ def draw_graph(start_date, end_date, lat, lon, panel_name):
     #creates the graphs and saves them to the plot
     # --- Plot Power vs Voltage ---
     power_masked = break_zero_blocks(times, results[0])
+    u_power_masked = break_zero_blocks(times, u_results[0])
     plt.figure()
+    plt.plot(times, u_power_masked, label='Unshaded Power over Time', color='red')
     plt.plot(times, power_masked, label='Shaded Power over Time', color='blue')
-    plt.plot(times, u_results[0], label='Unshaded Power over Time', color='red')
     plt.xlabel('Time')
-    plt.ylabel('Power (W)')
+    plt.ylabel('Power (kW)')
     plt.title(f'Power over Time')
     plt.gcf().autofmt_xdate(rotation=45)
     plt.gca().xaxis.set_major_locator(mdates.AutoDateLocator(minticks=10, maxticks=18))
@@ -486,9 +509,10 @@ def draw_graph(start_date, end_date, lat, lon, panel_name):
 
     # --- Plot Power vs Current ---
     voltage_masked = break_zero_blocks(times, results[1])
+    u_voltage_masked = break_zero_blocks(times, u_results[1])
     plt.figure()
+    plt.plot(times, u_voltage_masked, label='Unshaded Voltage over Time', color='blue')
     plt.plot(times, voltage_masked, label='Shaded Voltage over Time', color='green')
-    plt.plot(times, u_results[1], label='Unshaded Voltage over Time', color='blue')
     plt.xlabel('Time')
     plt.ylabel('Voltages (V)')
     plt.title(f'Voltage over Time') 
@@ -506,9 +530,10 @@ def draw_graph(start_date, end_date, lat, lon, panel_name):
 
     # --- Plot Voltage vs Current ---
     current_masked = break_zero_blocks(times, results[2])
+    u_current_masked = break_zero_blocks(times, u_results[2])
     plt.figure()
+    plt.plot(times, u_current_masked, label='Unshaded Current over Time', color='green')
     plt.plot(times, current_masked, label='Shaded Current over Time', color='red')
-    plt.plot(times, results[2], label='Unshaded Current over Time', color='green')
     plt.xlabel('Time')
     plt.ylabel('Current (A)')
     plt.title(f'Current over Time')
@@ -524,7 +549,12 @@ def draw_graph(start_date, end_date, lat, lon, panel_name):
     plt.close()
     plot_paths.append(web_path)
 
-    return plot_paths
+    #calculate shaded/unshaded results
+    shaded_output = hp.round_sf(hp.khw_output(timestep, results[0]))
+    unshaded_output = hp.round_sf(hp.khw_output(timestep, u_results[0]))
+    
+
+    return plot_paths, shaded_output, unshaded_output
 
 # Print memory and CPU usage
 def print_resource_usage(tag=""):
