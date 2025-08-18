@@ -130,13 +130,6 @@ def library_conditions(panel_name, G, T):
                 dEgdT=-0.0002677
             )
 
-            print("\ncalcparams_desoto outputs:")
-            print(f"  Iph = {Iph}")
-            print(f"  Is  = {Is}")
-            print(f"  Rs  = {Rs}")
-            print(f"  Rp  = {Rp}")
-            print(f"  nNsVth = {nNsVth}")
-
         #use nNsVth to estimate ideality
         k = 1.380649e-23
         q = 1.602e-19

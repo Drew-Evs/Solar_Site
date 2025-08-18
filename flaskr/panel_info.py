@@ -94,42 +94,24 @@ def calc_power():
 @pi.route('/new_panel', methods=['POST'])
 def new_panel():
     panel_name = request.form.get("panel_name") or None
-    alpha_sc_percent = float(request.form.get("alpha_sc" or math.nan))
-    Voc = float(request.form.get("Voc", math.nan))
-    Isc = float(request.form.get("Isc", math.nan))
-    Vmp = float(request.form.get("Vmp", math.nan))
-    Imp = float(request.form.get("Imp", math.nan))
     panel_length = float(request.form.get("panel_length" or math.nan))
     panel_width = float(request.form.get("panel_width" or math.nan))
     num_cells = int(request.form.get("num_cells" or math.nan))
     noct = float(request.form.get("noct" or math.nan))
     num_diodes = int(request.form.get("num_diodes" or math.nan))
-    panel_type_value = request.form.get("panel_type")
-    gamma_pmp_percent = float(request.form.get("gamma_pmp", math.nan))
-    beta_voc_percent = float(request.form.get("beta_voc", math.nan))
 
-    alpha_sc_A_per_C   = alpha_sc_percent * Isc / 100.0
-    beta_voc_V_per_C = beta_voc_percent * Voc / 100.0
-
-    print("Received panel inputs:")
-    print(f"  Panel Name      : {panel_name}")
-    print(f"  Alpha_sc        : {alpha_sc_A_per_C}")
-    print(f"  Voc             : {Voc} V")
-    print(f"  Isc             : {Isc} A")
-    print(f"  Vmp             : {Vmp} V")
-    print(f"  Imp             : {Imp} A")
-    print(f"  Panel Length    : {panel_length} m")
-    print(f"  Panel Width     : {panel_width} m")
-    print(f"  Number of Cells : {num_cells}")
-    print(f"  NOCT            : {noct} °C")
-    print(f"  Number of Diodes: {num_diodes}")
-    print(f"  Panel Type Code : {panel_type_value}")
-    print(f"  Gamma_pmp       : {gamma_pmp_percent} %/°C")
-    print(f"  Beta_voc        : {beta_voc_percent} %/°C")
+    alpha_sc = float(request.form.get("alpha_sc" or math.nan))
+    Voc = float(request.form.get("Voc", math.nan))
+    Isc = float(request.form.get("Isc", math.nan))
+    Vmp = float(request.form.get("Vmp", math.nan))
+    Imp = float(request.form.get("Imp", math.nan))
+    panel_type = request.form.get("panel_type")
+    gamma_pmp = float(request.form.get("gamma_pmp", math.nan))
+    beta_voc = float(request.form.get("beta_voc", math.nan))
 
     #check all valid inputs
     if any(math.isnan(val) for val in [
-        alpha_sc_A_per_C, Voc, Isc, Vmp, Imp,
+        alpha_sc, Voc, Isc, Vmp, Imp,
         panel_length, panel_width, num_cells, noct, num_diodes
     ]) or panel_name is None:
         return jsonify({'status': 'error', 'message': 'One or more fields are NaN'})
@@ -145,17 +127,21 @@ def new_panel():
     if existing_panel_info or existing_panel_custom:
         return jsonify({'status': 'error', 'message': 'Already exists in the database'})
 
-    i_l_ref, i_o_ref, r_s, r_sh_ref, a_ref = hp.custom_panel_variables(Voc, Isc, Vmp, Imp, 
-                                                            num_cells, alpha_sc_A_per_C, panel_type_value,
-                                                            gamma_pmp_percent, beta_voc_percent)
+    try:
+        i_l_ref, i_o_ref, r_s, r_sh_ref, a_ref, alpha_sc = hp.param_extraction(Voc, Isc, Vmp, Imp, 
+                                                    num_cells, alpha_sc, beta_voc, gamma_pmp, panel_type)
+    except Exception as e:
+        print(f"failed due to {e}")
+        pass
 
     # expected ideal Pmp
     expected_pmp = Vmp * Imp
     print(f"\nExpected Pmp = Vmp * Imp = {Vmp} * {Imp} = {expected_pmp:.1f} W")
+    print(f"\n Alpha sc is {alpha_sc}")
 
     new_custom_record = CustomPanel(
         panel_name = panel_name,
-        alpha_sc = alpha_sc_A_per_C,
+        alpha_sc = alpha_sc,
         a_ref = a_ref,
         i_l_ref = i_l_ref,
         i_o_ref = i_o_ref,
@@ -167,12 +153,7 @@ def new_panel():
     db.session.add(new_custom_record)
     db.session.commit()
 
-    test_cell = Solar_Cell(None, panel_name, 950, 25)
-    initial_conditions = test_cell.ACTUAL_CONDITIONS[:5]
-    test_panel = Panel(initial_conditions, panel_name=panel_name, module_count=num_diodes,
-        cell_per_module=(num_cells//num_diodes))
-
-    pmax, vmp, imp = test_panel.model_power()
+    pmax, vmp, imp = hp.calculate_pmp_simple(i_l_ref, i_o_ref, r_s, r_sh_ref, a_ref, alpha_sc=alpha_sc)
 
     new_panel_record = PanelInfo(
         panel_name=panel_name,

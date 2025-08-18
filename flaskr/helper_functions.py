@@ -17,6 +17,7 @@ from zoneinfo import ZoneInfo
 from scipy.optimize import least_squares
 from pvlib.ivtools.sdm import fit_cec_sam
 import math
+from pvlib.pvsystem import calcparams_cec, singlediode
 
 #use pvlib to find irradiance and temperature of longitude and latitude for a day
 def get_info(start, end, lat, long):
@@ -561,275 +562,110 @@ def khw_output(timestep, powers):
 #r_s - series resistance
 #r_sh - shunt resistance (aka parallel resistance)
 #a_ref a reference ideality factor
-from pvlib.pvsystem import calcparams_cec, singlediode
+
 
 import math
 import numpy as np
+from pvlib.ivtools.sdm import fit_cec_sam
+from pvlib.pvsystem import calcparams_cec, singlediode
+import pvlib
 
-# Try to import pvlib, but provide fallback
-try:
-    from pvlib.pvsystem import fit_cec_sam
-    PVLIB_AVAILABLE = True
-except ImportError:
-    PVLIB_AVAILABLE = False
-    print("Warning: pvlib not available")
-
+#used to get the correct params of a custom variable
 def custom_panel_variables(Voc, Isc, Vmp, Imp, N_cells, alpha_sc, cell_type, gamma_pmp, beta_voc):
-    """
-    Corrected parameter extraction with proper physics-based constraints
-    """
-    
     # Constants
     k = 1.380649e-23  # Boltzmann constant (J/K)
     q = 1.602176634e-19  # Elementary charge (C)
     T_ref = 25 + 273.15  # Reference temperature (K)
     
-    # Expected power
-    expected_power = Vmp * Imp
-    print(f"Expected Pmp = {Vmp} * {Imp} = {expected_power:.1f} W")
-    
-    # Input validation
-    if Vmp >= Voc:
-        print(f"ERROR: Vmp ({Vmp}V) should be less than Voc ({Voc}V)")
-        return None
-    if Imp >= Isc:
-        print(f"ERROR: Imp ({Imp}A) should be less than Isc ({Isc}A)")
-        return None
-    
-    # Check alpha_sc units - should be small (A/°C)
-    if alpha_sc > 1.0:
-        print(f"WARNING: alpha_sc ({alpha_sc}) seems too large. Should be in A/°C")
-        print("Expected range: 0.001 to 0.01 A/°C for typical panels")
-    
-    # Try pvlib first, but with better error handling
-    if PVLIB_AVAILABLE:
-        try:
-            result = try_pvlib_extraction(Voc, Isc, Vmp, Imp, N_cells, alpha_sc, cell_type, gamma_pmp, beta_voc)
-            if result is not None:
-                return result
-        except Exception as e:
-            print(f"pvlib extraction failed: {e}")
-    
-    # Use physics-based extraction
-    return physics_based_extraction(Voc, Isc, Vmp, Imp, N_cells, expected_power)
-
-def try_pvlib_extraction(Voc, Isc, Vmp, Imp, N_cells, alpha_sc, cell_type, gamma_pmp, beta_voc):
-    """
-    Attempt pvlib parameter extraction with multiple approaches
-    """
-    
-    # Normalize cell type
-    cell_type_map = {
-        'multi/poly': 'multiSi',
-        'poly': 'multiSi', 
-        'mono': 'monoSi'
-    }
-    normalized_cell_type = cell_type_map.get(cell_type.lower(), 'multiSi')
-    
-    # Try different parameter combinations
-    attempts = [
-        # Original values
-        {'gamma_pmp': gamma_pmp, 'beta_voc': beta_voc, 'alpha_sc': alpha_sc},
-        # Convert percentages to fractions if they seem to be in percent
-        {'gamma_pmp': gamma_pmp/100 if abs(gamma_pmp) > 0.01 else gamma_pmp, 
-         'beta_voc': beta_voc/100 if abs(beta_voc) > 0.01 else beta_voc, 
-         'alpha_sc': alpha_sc},
-        # Use typical values if extraction fails
-        {'gamma_pmp': -0.004, 'beta_voc': -0.003, 'alpha_sc': alpha_sc}
-    ]
-    
-    for i, params in enumerate(attempts):
-        try:
-            print(f"pvlib attempt {i+1}: gamma_pmp={params['gamma_pmp']:.6f}, beta_voc={params['beta_voc']:.6f}")
-            
-            cec_params = fit_cec_sam(
-                v_oc=Voc,
-                i_sc=Isc, 
-                v_mp=Vmp,
-                i_mp=Imp,
-                cells_in_series=N_cells,
-                celltype=normalized_cell_type,
-                **params
-            )
-            
-            I_L_ref, I_o_ref, R_s, R_sh_ref, nNsVth, _ = cec_params
-            
-            # Calculate ideality factor
-            k = 1.380649e-23
-            q = 1.602176634e-19
-            T_ref = 25 + 273.15
-            Vth_module = N_cells * k * T_ref / q
-            a_ref = nNsVth / Vth_module
-            
-            # Sanity check the results
-            if is_parameters_reasonable(I_L_ref, I_o_ref, R_s, R_sh_ref, a_ref, Isc, expected_power):
-                print(f"pvlib extraction successful on attempt {i+1}")
-                print(f"  I_L_ref = {I_L_ref:.6f} A")
-                print(f"  I_o_ref = {I_o_ref:.2e} A")
-                print(f"  R_s = {R_s:.6f} Ω")
-                print(f"  R_sh_ref = {R_sh_ref:.1f} Ω")
-                print(f"  a_ref = {a_ref:.6f}")
-                return I_L_ref, I_o_ref, R_s, R_sh_ref, a_ref
-            else:
-                print(f"  Parameters failed sanity check")
-                
-        except Exception as e:
-            print(f"  Attempt {i+1} failed: {e}")
-    
-    return None
-
-def is_parameters_reasonable(I_L, I_o, R_s, R_sh, a, I_sc, expected_power):
-    """
-    Check if extracted parameters are physically reasonable
-    """
-    checks = [
-        (I_L > I_sc * 0.95, f"I_L ({I_L:.3f}) should be close to I_sc ({I_sc:.3f})"),
-        (I_L < I_sc * 1.2, f"I_L ({I_L:.3f}) shouldn't be much larger than I_sc ({I_sc:.3f})"),
-        (1e-15 < I_o < 1e-6, f"I_o ({I_o:.2e}) should be between 1e-15 and 1e-6 A"),
-        (0.01 < R_s < 5.0, f"R_s ({R_s:.3f}) should be between 0.01 and 5.0 Ω"),
-        (R_sh > 10, f"R_sh ({R_sh:.1f}) should be > 10 Ω"),
-        (0.5 < a < 3.0, f"a ({a:.3f}) should be between 0.5 and 3.0")
-    ]
-    
-    all_good = True
-    for check, message in checks:
-        if not check:
-            print(f"    FAIL: {message}")
-            all_good = False
-    
-    return all_good
-
-def physics_based_extraction(Voc, Isc, Vmp, Imp, N_cells, expected_power):
-    """
-    Physics-based parameter extraction using fundamental PV equations
-    """
-    print("Using physics-based parameter extraction...")
-    
-    # Physical constants
-    k = 1.380649e-23  # Boltzmann constant
-    q = 1.602176634e-19  # Elementary charge  
-    T = 25 + 273.15  # Temperature in Kelvin
-    
-    # Start with reasonable initial estimates
-    n = 1.3  # Ideality factor for multicrystalline silicon
-    Vt_cell = k * T / q  # Thermal voltage per cell (~0.0258 V at 25°C)
-    Vt_module = n * N_cells * Vt_cell  # Module thermal voltage
-    
-    print(f"Thermal voltage per cell: {Vt_cell*1000:.1f} mV")
-    print(f"Module thermal voltage: {Vt_module:.2f} V")
-    
-    # Method: Use the relationship between MPP and key parameters
-    # At MPP: I = IL - Io*exp((V+I*Rs)/Vt) - (V+I*Rs)/Rsh
-    
-    # Estimate series resistance from the "knee" sharpness
-    # Sharp knee (low Rs) vs. rounded knee (high Rs)
-    fill_factor = (Vmp * Imp) / (Voc * Isc)
-    print(f"Fill factor: {fill_factor:.3f}")
-    
-    # Typical Rs estimation based on fill factor and panel characteristics
-    # For good panels: FF > 0.75, Rs < 0.5 Ω
-    Rs_estimate = max(0.05, (0.82 - fill_factor) * 2.0)  # Empirical relationship
-    Rs_estimate = min(Rs_estimate, 1.0)  # Cap at reasonable value
-    
-    # Better shunt resistance estimation
-    # At low voltages, slope ≈ -1/Rsh
-    # Use the fact that at V=0: I ≈ IL - V/Rsh ≈ Isc
-    # And at MPP we have significant voltage
-    dV_dI_mpp = (Voc - Vmp) / (Isc - Imp)  # Approximate slope
-    Rsh_estimate = max(50, min(5000, dV_dI_mpp * 10))  # Scale appropriately
-    
-    # Light current - should be slightly larger than Isc
-    # IL ≈ Isc + Voc/Rsh (accounting for shunt losses at Voc)
-    IL_estimate = Isc + Voc / Rsh_estimate
-    IL_estimate = min(IL_estimate, Isc * 1.1)  # Don't let it get too large
-    
-    # Dark saturation current from open circuit condition
-    # At Voc: 0 = IL - Io*exp(Voc/Vt) - Voc/Rsh
-    # So: Io = (IL - Voc/Rsh) / exp(Voc/Vt)
     try:
-        exp_factor = math.exp(Voc / Vt_module)
-        Io_estimate = (IL_estimate - Voc / Rsh_estimate) / exp_factor
-        Io_estimate = max(1e-15, min(1e-8, Io_estimate))  # Reasonable bounds
-    except OverflowError:
-        Io_estimate = 1e-12  # Fallback
-    
-    print(f"Physics-based parameter estimates:")
-    print(f"  I_L_ref = {IL_estimate:.6f} A")
-    print(f"  I_o_ref = {Io_estimate:.2e} A")
-    print(f"  R_s = {Rs_estimate:.6f} Ω")
-    print(f"  R_sh_ref = {Rsh_estimate:.1f} Ω")
-    print(f"  a_ref = {n:.6f}")
-    
-    # Validation: Check if these parameters can produce reasonable power
-    validate_physics_parameters(IL_estimate, Io_estimate, Rs_estimate, Rsh_estimate, 
-                               n, Vt_module, Vmp, Imp, expected_power)
-    
-    return IL_estimate, Io_estimate, Rs_estimate, Rsh_estimate, n
-
-def validate_physics_parameters(IL, Io, Rs, Rsh, n, Vt, Vmp, Imp, expected_power):
-    """
-    Validate parameters by calculating current at MPP voltage
-    """
-    try:
-        # Calculate current at Vmp using single diode equation
-        # I = IL - Io*(exp((V+I*Rs)/Vt) - 1) - (V+I*Rs)/Rsh
-        # This requires iterative solution, so we'll use Newton-Raphson
-        
-        def diode_equation(I, V=Vmp):
-            return IL - Io * (math.exp((V + I*Rs)/Vt) - 1) - (V + I*Rs)/Rsh - I
-        
-        def diode_derivative(I, V=Vmp):
-            exp_term = math.exp((V + I*Rs)/Vt)
-            return -Io * Rs/Vt * exp_term - Rs/Rsh - 1
-        
-        # Newton-Raphson iteration
-        I_calc = Imp  # Starting guess
-        for _ in range(10):  # Max 10 iterations
-            f = diode_equation(I_calc)
-            df = diode_derivative(I_calc)
-            if abs(df) < 1e-10:
-                break
-            I_new = I_calc - f/df
-            if abs(I_new - I_calc) < 1e-6:
-                break
-            I_calc = I_new
-        
-        P_calc = Vmp * I_calc
-        error_percent = abs(P_calc - expected_power) / expected_power * 100
-        
-        print(f"Parameter validation:")
-        print(f"  Calculated current at Vmp: {I_calc:.3f} A (expected: {Imp:.3f} A)")
-        print(f"  Calculated power: {P_calc:.1f} W (expected: {expected_power:.1f} W)")
-        print(f"  Power error: {error_percent:.1f}%")
-        
+        result = pvlib_extraction(Voc, Isc, Vmp, Imp, N_cells, alpha_sc, cell_type, gamma_pmp, beta_voc)
+        if result is not None:
+            return result
     except Exception as e:
-        print(f"Validation calculation failed: {e}")
+        return f"Failed due to {e}"
+
+def pvlib_extraction(Voc, Isc, Vmp, Imp, N_cells, alpha_sc, cell_type, gamma_pmp, beta_voc):
+
+    params = {'gamma_pmp': gamma_pmp, 'beta_voc': beta_voc, 'alpha_sc': alpha_sc},
+
+    try:
+        cec_params = fit_cec_sam(
+            v_oc=Voc,
+            i_sc=Isc, 
+            v_mp=Vmp,
+            i_mp=Imp,
+            cells_in_series=N_cells,
+            celltype=cell_type,
+            temp_ref=25,
+            gamma_pmp = gamma_pmp,
+            beta_voc = beta_voc,
+            alpha_sc = alpha_sc
+        )
+        
+        I_L_ref, I_o_ref, R_s, R_sh_ref, a_ref, adjust = cec_params
+        
+        # Calculate ideality factor
+        k = 1.380649e-23
+        q = 1.602176634e-19
+        T_ref = 25 + 273.15
+        Vth_module = N_cells * k * T_ref / q
+
+        return I_L_ref, I_o_ref, R_s, R_sh_ref, a_ref, alpha_sc
+            
+    except Exception as e:
+        print(f"Parameter extraction failed: {e}")
+        return None
 
 # Test function
-def test_corrected_extraction():
-    # Your problematic panel data
-    Voc = 50.27  # V
-    Isc = 14.01  # A  
-    Vmp = 41.58  # V
-    Imp = 13.23  # A
-    num_cells = 144
+def param_extraction(Voc, Isc, Vmp, Imp, num_cells, alpha_sc_percent, beta_voc_percent,
+                gamma_pmp_percent, panel_type):
+    #correct conversion of alpha_sc and beta_voc
+    alpha_sc_A_per_C = (alpha_sc_percent * Isc) / 100.0
+    beta_voc_V_per_C = (beta_voc_percent * Voc) / 100.0 
+
+    panel_type = "mono"
     
-    # Fix the alpha_sc - this should be much smaller!
-    alpha_sc_percent = 0.046  # This is likely 0.046%/°C, not 0.046 A/°C
-    alpha_sc_A_per_C = alpha_sc_percent * Isc / 100.0  # Convert properly
-    print(f"Alpha_sc conversion: {alpha_sc_percent}%/°C * {Isc}A / 100 = {alpha_sc_A_per_C:.6f} A/°C")
-    
-    gamma_pmp_percent = -0.3  # %/°C
-    beta_voc_percent = -0.25  # %/°C  
-    panel_type = "multi/poly"
-    
-    result = custom_panel_variables_corrected(
+    result = custom_panel_variables(
         Voc, Isc, Vmp, Imp, num_cells,
         alpha_sc_A_per_C, panel_type,
-        gamma_pmp_percent, beta_voc_percent
+        gamma_pmp_percent, beta_voc_V_per_C
     )
     
     return result
 
-if __name__ == "__main__":
-    test_corrected_extraction()
+def calculate_pmp_simple(I_L_ref, I_o_ref, R_s, R_sh_ref, a_ref,
+                        temp_cell=25, irradiance=1000, alpha_sc=0.006445):
+    # Calculate parameters at operating conditions
+    photocurrent, saturation_current, resistance_series, resistance_shunt, nNsVth = calcparams_cec(
+        effective_irradiance=irradiance,
+        temp_cell=temp_cell,
+        alpha_sc=alpha_sc,
+        a_ref=a_ref,
+        I_L_ref=I_L_ref,
+        I_o_ref=I_o_ref,
+        R_sh_ref=R_sh_ref,
+        R_s=R_s,
+        Adjust=1
+    )
+    
+    # Solve for operating point
+    result = singlediode(
+        photocurrent=photocurrent,
+        saturation_current=saturation_current,
+        resistance_series=resistance_series,
+        resistance_shunt=resistance_shunt,
+        nNsVth=nNsVth
+    )
+    
+    return result['p_mp'], result['v_mp'], result['i_mp']
+
+
+# if __name__ == "__main__":
+#     I_L_ref, I_o_ref, R_s, R_sh_ref, a_ref, adjust = test_corrected_extraction()
+#     N_cells = 144
+#     alpha_sc_A_per_C = (0.046 * 14.01) / 100.0
+
+#     # Test at different conditions
+#     pmp, vmp, imp = calculate_pmp_simple(I_L_ref, I_o_ref, R_s, R_sh_ref, a_ref, adjust, 
+#                                         temp_cell=25, irradiance=1000, alpha_sc=alpha_sc_A_per_C)
+#     print(f"Pmp = {pmp:.1f} W (at {vmp:.1f}V, {imp:.2f}A) at 25°C, 1000 W/m²")

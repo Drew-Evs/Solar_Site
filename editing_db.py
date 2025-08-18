@@ -66,5 +66,24 @@ def add_noct():
         
         db.session.commit()
 
+def clear_custom_and_panelinfo():
+    from flaskr import create_app, db
+    from flaskr.models import PanelInfo, CustomPanel, ModuleLookup  # adjust imports to your actual models
+
+    app = create_app()
+    with app.app_context():
+        # --- 1. Clear all entries in custom_panel ---
+        deleted_custom = db.session.query(ModuleLookup).delete()
+        print(f"Deleted {deleted_custom} rows from CustomPanel")
+
+        # --- 2. Delete PanelInfo entries with id >= 21536 ---
+        # deleted_panelinfo = db.session.query(PanelInfo).filter(PanelInfo.id >= 21536).delete()
+        # print(f"Deleted {deleted_panelinfo} rows from PanelInfo (id >= 21536)")
+
+        # Commit changes
+        db.session.commit()
+        print("Database cleanup complete.")
+
+
 if __name__ == "__main__":
-    add_noct()
+   clear_custom_and_panelinfo()
