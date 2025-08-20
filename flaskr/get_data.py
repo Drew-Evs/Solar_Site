@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 import os
 import difflib
-from flaskr.models import PanelInfo
+from flaskr.models import PanelInfo, CustomPanel
 from . import db
 
 def create_csv_entry(panel_name):
@@ -88,9 +88,67 @@ def create_csv_entry(panel_name):
 
 def library_conditions(panel_name, G, T):
     cec_modules = pvlib.pvsystem.retrieve_sam('CECMod')
-    try: 
-        module = cec_modules[panel_name]
+    try:
+        try: 
+            module = cec_modules[panel_name]
+        
+            Iph, Is, Rs, Rp, nNsVth = pvlib.pvsystem.calcparams_desoto(
+                effective_irradiance = G,
+                temp_cell = T,
+                alpha_sc=module['alpha_sc'],
+                a_ref=module['a_ref'],
+                I_L_ref=module['I_L_ref'],
+                I_o_ref=module['I_o_ref'],
+                R_sh_ref=module['R_sh_ref'],
+                R_s=module['R_s'],
+                EgRef=1.121,
+                dEgdT=-0.0002677
+            )
 
+            Ns = module['N_s']
+
+        #if not in cecmod check database
+        except:
+            from flask import current_app
+            with current_app.app_context():
+                record = CustomPanel.query.filter_by(
+                    panel_name=panel_name
+                ).first()
+            
+            Ns = record.num_cells
+
+            Iph, Is, Rs, Rp, nNsVth = pvlib.pvsystem.calcparams_desoto(
+                effective_irradiance = G,
+                temp_cell = T,
+                alpha_sc=record.alpha_sc,
+                a_ref=record.a_ref,
+                I_L_ref=record.i_l_ref,
+                I_o_ref=record.i_o_ref,
+                R_sh_ref=record.r_sh_ref,
+                R_s=record.r_s,
+                EgRef=1.121,
+                dEgdT=-0.0002677
+            )
+
+        #use nNsVth to estimate ideality
+        k = 1.380649e-23
+        q = 1.602e-19
+        T_K = T + 273.15
+        Vth = k * T_K / q 
+        n = nNsVth / (Ns * Vth)
+
+        return Iph, Is, nNsVth, Rs, Rp
+        
+    except Exception as e:
+        print(f'{panel_name} not in library: {e}')
+        raise
+
+#gets the whole module lookup info
+def lib_mod_lookup(panel_name, G, T):
+    cec_modules = pvlib.pvsystem.retrieve_sam('CECMod')
+    try:
+        module = cec_modules[panel_name]
+    
         Iph, Is, Rs, Rp, nNsVth = pvlib.pvsystem.calcparams_desoto(
             effective_irradiance = G,
             temp_cell = T,
@@ -104,18 +162,10 @@ def library_conditions(panel_name, G, T):
             dEgdT=-0.0002677
         )
 
-        #use nNsVth to estimate ideality
-        k = 1.380649e-23
-        q = 1.602e-19
-        T_K = T + 273.15
-        Vth = k * T_K / q
-        Ns = module['N_s']
-        n = nNsVth / (Ns * Vth)
-
-        return Iph, Is, n, Rs/Ns, Rp/Ns
-    except Exception as e:
-        print(f'{panel_name} not in library: {e}')
-        raise
+        return Iph, Is, Rs, Rp, nNsVth
+    except:
+        print("Failed")
+        return None
 
 #builds a database of panels at standard conditions
 def build_database_mod():
@@ -213,6 +263,29 @@ def build_database():
     build_database_inverter()
     build_database_mod()
 
+def attempt():
+    sand_modules = pvlib.pvsystem.retrieve_sam(path='/workspaces/Solar_Site/PV_Module_List_Full_Data_ADA.xlsx')
+    print(sand_modules.keys())
+    #print([model for model in sand_modules.keys() if 'KM550' in model])
+
+def print_cec_module_params(panel_name):
+    # Retrieve the CEC module database
+    cec_modules = pvlib.pvsystem.retrieve_sam('CECMod')
+    
+    if panel_name not in cec_modules:
+        print(f"Panel '{panel_name}' not found in CEC database.")
+        return
+    
+    module = cec_modules[panel_name]
+    
+    print(f"=== {panel_name} ===")
+    print(f"alpha_sc: {module['alpha_sc']}")
+    print(f"a_ref: {module['a_ref']}")
+    print(f"I_L_ref: {module['I_L_ref']}")
+    print(f"I_o_ref: {module['I_o_ref']}")
+    print(f"R_sh_ref: {module['R_sh_ref']}")
+    print(f"R_s: {module['R_s']}")
+    print(f"N_s: {module['N_s']}")
 
 if __name__ == "__main__":
-    build_database_mod()
+    print_cec_module_params('Jinko_Solar_Co___Ltd_JKM410M_72HL_V')

@@ -6,7 +6,7 @@
 <script src="{{ url_for('static', filename='javascript/string_model.js')}}"></script>
 
 <style>
-  /* Page-specific styles */
+  /* Page-specific styles with improved text readability */
   .main-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -16,17 +16,30 @@
   }
 
   .grid-item {
-    background: white;
+    background: #ffffff;
     border-radius: 12px;
     padding: 2rem;
     box-shadow: 0 4px 20px rgba(0,0,0,0.08);
     border: 1px solid #e1e8ed;
     display: flex;
     flex-direction: column;
+    color: #2c3e50;
   }
 
   .grid-item .section-title {
     margin-bottom: 1.5rem;
+    color: #2c3e50;
+    font-weight: 600;
+  }
+
+  .grid-item h3 {
+    color: #2c3e50;
+    font-weight: 600;
+  }
+
+  .grid-item label {
+    color: #2c3e50;
+    font-weight: 500;
   }
 
   .preview-container {
@@ -57,6 +70,18 @@
     color: #666;
     font-size: 1.1rem;
     background: #f9f9f9;
+    font-weight: 500;
+  }
+
+  #string-info {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    color: #64748b;
+    font-style: italic;
+    font-weight: 500;
+    text-align: center;
   }
 
   .real-time-data {
@@ -73,35 +98,55 @@
 
   .data-item {
     text-align: center;
-    background: rgba(255,255,255,0.1);
+    background: rgba(255,255,255,0.15);
     padding: 1rem;
     border-radius: 8px;
     backdrop-filter: blur(10px);
+    color: white;
   }
 
   .data-label {
     font-size: 0.9rem;
-    opacity: 0.9;
+    opacity: 0.95;
     margin-bottom: 0.5rem;
+    color: white;
+    font-weight: 500;
   }
 
   .data-value {
     font-size: 1.4rem;
     font-weight: 600;
+    color: white;
   }
 
   .power-analysis-section {
-    background: white;
+    background: #ffffff;
     border-radius: 12px;
     padding: 2rem;
     margin-bottom: 2rem;
     box-shadow: 0 4px 20px rgba(0,0,0,0.08);
     border: 1px solid #e1e8ed;
     width: 100%;
+    color: #2c3e50;
+  }
+
+  .power-analysis-section .section-title {
+    color: #2c3e50;
+    font-weight: 600;
+  }
+
+  .power-analysis-section h3 {
+    color: #2c3e50;
+    font-weight: 600;
+  }
+
+  .power-analysis-section label {
+    color: #2c3e50;
+    font-weight: 500;
   }
 
   .graph-container {
-    background: white;
+    background: #ffffff;
     border-radius: 12px;
     padding: 2rem;
     margin-top: 2rem;
@@ -109,6 +154,12 @@
     border: 1px solid #e1e8ed;
     display: none;
     width: 100%;
+    color: #2c3e50;
+  }
+
+  .graph-container .section-title {
+    color: #2c3e50;
+    font-weight: 600;
   }
 
   .graph-grid {
@@ -136,6 +187,34 @@
 
   .graph-item:hover img {
     transform: scale(1.02);
+  }
+
+  /* Ensure all input elements have proper styling */
+  input, select, textarea {
+    background-color: #ffffff !important;
+    color: #2c3e50 !important;
+    border: 2px solid #e2e8f0 !important;
+  }
+
+  input:focus, select:focus, textarea:focus {
+    border-color: #667eea !important;
+    color: #2c3e50 !important;
+  }
+
+  /* Status messages with better contrast */
+  .status-message {
+    color: #2c3e50;
+    background: #ffffff;
+    border: 2px solid #667eea;
+    padding: 1rem;
+    border-radius: 8px;
+    margin-top: 1rem;
+  }
+
+  .error-message {
+    color: #dc3545;
+    background: #fff5f5;
+    border-color: #dc3545;
   }
 
   @media (max-width: 1024px) {
@@ -168,7 +247,7 @@
   }
 </style>
 
-<div class="container">
+<div style="width: 100%; min-height: 100vh; padding: 2rem;">
   <h1 class="page-title">Solar String Model</h1>
 
   <!-- Main 4-box grid layout -->
@@ -234,7 +313,7 @@
           </div>
         </div>
 
-        <h3 style="margin: 1rem 0 0.5rem 0; color: #555;">String Position</h3>
+        <h3 style="margin: 1rem 0 0.5rem 0; color: #2c3e50;">String Position</h3>
         <div class="coord-grid">
           <div class="input-group">
             <label for="X">X Coordinate (0-1000)</label>
@@ -252,10 +331,10 @@
       </form>
     </div>
 
-    <!-- Bottom Right: String Status/Info (initially empty, could be used for string details) -->
+    <!-- Bottom Right: String Status/Info -->
     <div class="grid-item">
       <h2 class="section-title">📊 String Information</h2>
-      <div id="string-info" style="display: flex; align-items: center; justify-content: center; height: 100%; color: #666; font-style: italic;">
+      <div id="string-info">
         Build a string to see configuration details
       </div>
     </div>
@@ -291,7 +370,7 @@
         </div>
       </div>
 
-      <h3 style="margin-bottom: 1rem; color: #555;">Location Coordinates</h3>
+      <h3 style="margin-bottom: 1rem; color: #2c3e50;">Location Coordinates</h3>
       <div class="coord-grid">
         <div class="input-group">
           <label for="lon">Longitude (-180 to 180)</label>
@@ -334,6 +413,10 @@
     <div class="data-item">
       <div class="data-label">Current Time</div>
       <div class="data-value" id="time-val">--</div>
+    </div>
+    <div class="data-item">
+      <div class="data-label">Current Temp</div>
+      <div class="data-value" id="temp-val">--</div>
     </div>
   </div>
 

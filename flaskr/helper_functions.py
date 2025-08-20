@@ -12,6 +12,12 @@ from flask import current_app
 from . import db
 from timezonefinder import TimezoneFinder
 import numpy as np
+import requests
+from zoneinfo import ZoneInfo
+from scipy.optimize import least_squares
+from pvlib.ivtools.sdm import fit_cec_sam
+import math
+from pvlib.pvsystem import calcparams_cec, singlediode
 
 #use pvlib to find irradiance and temperature of longitude and latitude for a day
 def get_info(start, end, lat, long):
@@ -213,30 +219,6 @@ def round_sf(x, sig=3):
     from math import log10, floor
     return round(x, sig - int(floor(log10(abs(x)))) - 1)
 
-def calculate_pixels(string):
-    location_dict = {}
-
-    #original start of string
-    x, y = string.left_top_point
-
-    #iterate through each panel
-    for i, panel in enumerate(string.panel_list):
-        #print(f'Panel number {i}')
-        col = i*6
-        row = 0
-        for module in panel.module_list:
-            for j in range(module.rows):
-                for cell in module.cell_array[j]:
-                    key = get_cell_pixel_pos(string, row, col)
-                    if key in location_dict:
-                        location_dict[key].append(cell)
-                    else:
-                        location_dict[key] = [cell]
-                    col += 1
-                row += 1
-                col = i*6
-
-    return location_dict
 
 def get_cell_pixel_pos(string, row, col):
     #key values
@@ -283,20 +265,24 @@ def file_pixel_dict(filename, start_date, end_date, timestep):
     duration_frame = get_times(filename)
 
     while time <= end_date:
-        in_range = get_shade_at_time(time, duration_frame)
-        pixel_x = in_range['Pixel X'].values
-        pixel_y = in_range['Pixel Y'].values
+        try:
+            in_range = get_shade_at_time(time, duration_frame)
+            pixel_x = in_range['Pixel X'].values
+            pixel_y = in_range['Pixel Y'].values
+            irr_drop = in_range['Average Power Blocked (W/m²)'].values
 
-        pixel_arr = [pixel_to_key(x, y) for x, y in zip(pixel_x, pixel_y)] if not in_range.empty else []
+            pixel_arr = [pixel_to_key(x, y) for x, y in zip(pixel_x, pixel_y)] if not in_range.empty else []
 
-        pixel_dict[datetime.strftime(time, d_format)] = pixel_arr
+            pixel_dict[datetime.strftime(time, d_format)] = (pixel_arr, irr_drop)
 
-        time += timestep
-    
+            time += timestep
+        except Exception as e:
+            print(f'Shading failed due to exception {e}')
+
     return pixel_dict
 
 def get_times(filename): 
-    df = pd.read_csv(filename, parse_dates=["First Shadow Timestamp", "Last Shadow Timestamp"], dayfirst=True)
+    df = pd.read_csv(filename, parse_dates=["Shadow Start Timestamp", "Shadow End Timestamp"], dayfirst=True)
 
     return df
 
@@ -335,47 +321,163 @@ def get_irr(start_date, end_date, lat, lon, timestep,
     times = pd.date_range(start=f'{start_date} 00:00', end=f'{end_date} 23:59',
         freq=f'{timestep}{timestep_unit}', tz=timezone)
 
-    print(timezone)
-
     #get the irradiance of the clearsky
     clearsky = site.get_clearsky(times)
 
-    #synthetic temperature replace later with real temp
-    hours = times.hour + times.minute/60
-    ambient_temp = 20 + 10 * np.sin((hours-6)/24 * 2 * np.pi)
+    #get the solar position
+    solpos = site.get_solarposition(times)
 
-    #use DNI (assume panels track the sun)
-    dni_info = clearsky["dni"]
+    #direct normal irr/diffuse horizontal/global horizontal 
+    #direct from sun
+    #sunlight coming horizontal after being scattered
+    #total irradiance on a horizontal surface (combine with angle)
+    dni = clearsky["dni"]
+    dhi = clearsky['dhi']
+    ghi = clearsky['ghi']
+
+    #this assumes that the panels track perfactly, where the tilt is the solar zenith
+    surface_tilt = 90 - solpos['apparent_elevation'] #tilt perpendicular to the suns rays (suns elevation)
+    surface_azimuth = solpos['azimuth'] #sets panel horizontal to the suns current direction
+
+    #using pvlib to get total irradiance on a panel
+    poa = pvlib.irradiance.get_total_irradiance(
+        surface_tilt=surface_tilt,
+        surface_azimuth=surface_azimuth,
+        dni=dni,
+        ghi=ghi,
+        dhi=dhi,
+        solar_zenith=solpos['apparent_zenith'],
+        solar_azimuth=solpos['azimuth'],
+        albedo=0.2
+    )
+
+    #get the high and low temperature 
+    month = start_date.strftime('%m')
+
+    t_high, t_low = get_avg_temp(lat, lon, month)
+    #get the mean and difference from mean (amplitude)
+    t_avg = (t_high + t_low)/2
+    amp = (t_high - t_low)/2
+
+    #assume min temp at 3am and max at 3pm
+    time_low = 3
+
+    temps = []
+
+    for time in times:
+        #get the hour of the day
+        hour = time.hour + time.minute/60
+
+        #take the averaga and sin curve deviation to get a synethic time curve
+        angle = ((hour-time_low)/24) * 2 * np.pi - (np.pi/2) #shift by -pi/2
+        temp = t_avg + amp * np.sin(angle)
+        temps.append(temp)
+
+    ambient_temp = pd.Series(temps, index=times)
+
     
     df = pd.DataFrame({
-        'dni': dni_info,
+        'irr': poa['poa_global'],
         'temp': ambient_temp
-    })
+    }, index=times)
 
     return df
         
-def set_shade_at_time(time, panel_dict, file_dict):
-    time = time.strftime('%d/%m/%Y %H:%M:%S')
+def set_shade_at_time(time, panel_dict, file_dict, _instance, irr, shaded_temp, log_path="shade_log.txt"):
+    time_str = time.strftime('%d/%m/%Y %H:%M:%S')
     try:
-        pixels = file_dict[time]
-        for pixel in pixels:
-            cells = panel_dict[pixel]
-            for cell in cells:  
-                cell.set_shade(irr=100)
+        shaded_cells = set()
+        crossover_coords = []
 
-        output = "shade set succesfully"
+        parent_list = set()
+
+        pixels, irr_drop = file_dict.get(time_str, ([],[]))
+        drop = None
+
+        for pixel, drop in zip(pixels, irr_drop):
+            cells = panel_dict.get(pixel, [])
+            if len(cells) > 1:
+                crossover_coords.append(pixel)
+            for cell in cells:
+                cell.set_shade(irr=(irr-drop), temp=shaded_temp)
+                cell.parent.update_shaded(True)
+                parent_list.add(cell.parent)
+                shaded_cells.add(str(cell))  
+
+        output = f"Shade set successfully for {time_str}"
+
+        #used for logging and debugging not needed
+        shaded_count = 0
+
+        for module in parent_list:
+            if module.shaded == True:
+                shaded_count += 1
+
+        ins_shaded_cells = 0
+        ins_shaded_count = 0
+
+        for panel in _instance.panel_list:
+            for module in panel.module_list:
+                if module.shaded == True:
+                    ins_shaded_count += 1
+                    for cell in module.cell_list:
+                        if cell.ACTUAL_CONDITIONS[6] < irr:
+                            ins_shaded_cells += 1
+
+
+        # Prepare log content
+        log_content = [
+            f"Time: {time_str}",
+            f"Number of shaded cells: {len(shaded_cells)}",
+            f"Cells shaded: {', '.join(sorted(shaded_cells)) if shaded_cells else 'None'}",
+            f"Number of shaded coordinates: {len(pixels)}",
+            f"Shaded coordinates: {', '.join(pixels) if pixels else 'None'}",
+            f"Crossover coordinates ({len(crossover_coords)}): {', '.join(crossover_coords) if crossover_coords else 'None'}",
+            f"Number of shaded modules {shaded_count}",
+            f"List of shaded modules: {[str(module) for module in sorted(parent_list, key=str)]}",
+            "-" * 50,
+            f"Using the _instance",
+            f"Number of shaded modules {ins_shaded_count}",
+            f"Number of shaded cells {ins_shaded_cells}",
+            "-" * 50,
+            f"Irradiance at start is {irr}",
+            f"Shade is -{drop}",
+            f"Shade on shaded panel is {irr-drop}",
+            "-" * 50
+        ]
+
+        # Write log
+        with open(log_path, "a") as log_file:
+            log_file.write("\n".join(log_content) + "\n")
+
     except Exception as e:
-        output = f'Failed due to {e}'
-        raise
+        output = f"Failed due to {e}"
 
-    return output
+        with open(log_path, "a") as log_file:
+            log_file.write(f"{time_str} - ERROR: {e}\n{'-'*50}\n")
+
+# def set_parent_shade(time, panel_dict, file_dict, _instance, irr, shaded_temp):
+#     time_str = time.strftime('%d/%m/%Y %H:%M:%S')
+
+#     pixels, irr_drop = file_dict.get(time_str, ([],[]))
+#     drop = None
+
+#     for pixel, drop in zip(pixels, irr_drop):
+#         cells = panel_dict.get(pixel, [])
+#         if len(cells) > 1:
+#             crossover_coords.append(pixel)
+#         for cell in cells:
+#             cell.parent.irradiance = irr-drop
+#             cell.parent.temperature=shaded_temp
+#             cell.parent.update_shaded(True) 
+
 
 #given a certain time returns the pixels that are shaded at that time
 def get_shade_at_time(time, df):
     d_format = "%d/%m/%Y %H:%M:%S"
     in_range = df[
-        (df["First Shadow Timestamp"] <= time) &
-        (df["Last Shadow Timestamp"] >= time)
+        (df["Shadow Start Timestamp"] <= time) &
+        (df["Shadow End Timestamp"] >= time)
     ]
 
     return in_range
@@ -385,3 +487,180 @@ def _key_from_floats(*numbers, prec=2):
 
 def _floats_from_key(key: str):
     return tuple(float(x) for x in key.split("|"))
+
+#using nasa api to request temperature infromation for a year 
+def get_avg_temp(lat=24, lon=69, month='01'):
+
+    start_year = 2019
+    end_year = 2020
+
+    #use nasa power parameters
+    #t2m_max is max and t2m_min min
+    params = ["T2M_MAX", "T2M_MIN"]
+
+    #the api url to request data from
+    url = (
+        f"https://power.larc.nasa.gov/api/temporal/monthly/point"
+        f"?parameters={','.join(params)}"
+        f"&community=AG"
+        f"&longitude={lon}&latitude={lat}"
+        f"&start={start_year}&end={end_year}"
+        f"&format=JSON"
+    )
+
+    print("Fetching data")
+    response = requests.get(url)
+    data = response.json()
+
+    records = []
+    for date_str, values in data['properties']['parameter']['T2M_MAX'].items():
+        records.append({
+            'YearMonth': date_str,
+            'Tmax': values,
+            'Tmin': data['properties']['parameter']['T2M_MIN'][date_str]
+        })
+
+
+    #build a sin curve of temperatures between a low at 3am and a high at 3pm
+    filtered_records = []
+    for record in records:
+        if record['YearMonth'] == f'2019{month}':
+            filtered_records.append(record)
+
+    #get the high and low 
+    t_high = record['Tmax']
+    t_low = record['Tmin']
+
+    print(f'high is {t_high}, low is {t_low}')
+    
+    return t_high, t_low
+
+#estimates the actual temperature of a cell based on noct, irradiance and ambient
+#if no sunlight - cell would be ambient temp
+#(noct-20)/800 this tells how much above the temp it will heat per irradiance
+#noct measured at 20 degrees and 800 irradiance
+def estimate_temp(ambient_temp, noct, irr):
+    return ambient_temp + (((noct-20)/800) * irr)
+
+#get power in kwh
+def khw_output(timestep, powers):
+    total = 0
+    for power in powers:
+        total += power*(timestep/timedelta(hours=1))
+
+    return total
+
+#used when creating new custom panels from outside the library
+#used to find:
+#i_l - light generated current around isc
+#i-O - diode sat current
+#r_s - series resistance
+#r_sh - shunt resistance (aka parallel resistance)
+#a_ref a reference ideality factor
+
+
+import math
+import numpy as np
+from pvlib.ivtools.sdm import fit_cec_sam
+from pvlib.pvsystem import calcparams_cec, singlediode
+import pvlib
+
+#used to get the correct params of a custom variable
+def custom_panel_variables(Voc, Isc, Vmp, Imp, N_cells, alpha_sc, cell_type, gamma_pmp, beta_voc):
+    # Constants
+    k = 1.380649e-23  # Boltzmann constant (J/K)
+    q = 1.602176634e-19  # Elementary charge (C)
+    T_ref = 25 + 273.15  # Reference temperature (K)
+    
+    try:
+        result = pvlib_extraction(Voc, Isc, Vmp, Imp, N_cells, alpha_sc, cell_type, gamma_pmp, beta_voc)
+        if result is not None:
+            return result
+    except Exception as e:
+        return f"Failed due to {e}"
+
+def pvlib_extraction(Voc, Isc, Vmp, Imp, N_cells, alpha_sc, cell_type, gamma_pmp, beta_voc):
+
+    params = {'gamma_pmp': gamma_pmp, 'beta_voc': beta_voc, 'alpha_sc': alpha_sc},
+
+    try:
+        cec_params = fit_cec_sam(
+            v_oc=Voc,
+            i_sc=Isc, 
+            v_mp=Vmp,
+            i_mp=Imp,
+            cells_in_series=N_cells,
+            celltype=cell_type,
+            temp_ref=25,
+            gamma_pmp = gamma_pmp,
+            beta_voc = beta_voc,
+            alpha_sc = alpha_sc
+        )
+        
+        I_L_ref, I_o_ref, R_s, R_sh_ref, a_ref, adjust = cec_params
+        
+        # Calculate ideality factor
+        k = 1.380649e-23
+        q = 1.602176634e-19
+        T_ref = 25 + 273.15
+        Vth_module = N_cells * k * T_ref / q
+
+        return I_L_ref, I_o_ref, R_s, R_sh_ref, a_ref, alpha_sc
+            
+    except Exception as e:
+        print(f"Parameter extraction failed: {e}")
+        return None
+
+# Test function
+def param_extraction(Voc, Isc, Vmp, Imp, num_cells, alpha_sc_percent, beta_voc_percent,
+                gamma_pmp_percent, panel_type):
+    #correct conversion of alpha_sc and beta_voc
+    alpha_sc_A_per_C = (alpha_sc_percent * Isc) / 100.0
+    beta_voc_V_per_C = (beta_voc_percent * Voc) / 100.0 
+
+    panel_type = "mono"
+    
+    result = custom_panel_variables(
+        Voc, Isc, Vmp, Imp, num_cells,
+        alpha_sc_A_per_C, panel_type,
+        gamma_pmp_percent, beta_voc_V_per_C
+    )
+    
+    return result
+
+def calculate_pmp_simple(I_L_ref, I_o_ref, R_s, R_sh_ref, a_ref,
+                        temp_cell=25, irradiance=1000, alpha_sc=0.006445):
+    # Calculate parameters at operating conditions
+    photocurrent, saturation_current, resistance_series, resistance_shunt, nNsVth = calcparams_cec(
+        effective_irradiance=irradiance,
+        temp_cell=temp_cell,
+        alpha_sc=alpha_sc,
+        a_ref=a_ref,
+        I_L_ref=I_L_ref,
+        I_o_ref=I_o_ref,
+        R_sh_ref=R_sh_ref,
+        R_s=R_s,
+        Adjust=1
+    )
+    
+    # Solve for operating point
+    result = singlediode(
+        photocurrent=photocurrent,
+        saturation_current=saturation_current,
+        resistance_series=resistance_series,
+        resistance_shunt=resistance_shunt,
+        nNsVth=nNsVth
+    )
+    
+    return result['p_mp'], result['v_mp'], result['i_mp']
+
+
+# if __name__ == "__main__":
+#     I_L_ref, I_o_ref, R_s, R_sh_ref, a_ref, adjust = test_corrected_extraction()
+#     N_cells = 144
+#     alpha_sc_A_per_C = (0.046 * 14.01) / 100.0
+
+#     # Test at different conditions
+#     pmp, vmp, imp = calculate_pmp_simple(I_L_ref, I_o_ref, R_s, R_sh_ref, a_ref, adjust, 
+#                                         temp_cell=25, irradiance=1000, alpha_sc=alpha_sc_A_per_C)
+#     print(f"Pmp = {pmp:.1f} W (at {vmp:.1f}V, {imp:.2f}A) at 25°C, 1000 W/m²")

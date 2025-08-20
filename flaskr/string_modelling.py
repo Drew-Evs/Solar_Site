@@ -2,9 +2,9 @@ from flask import Blueprint, render_template, request, session, url_for, current
 import os
 import json
 from PIL import Image
-from .classes import Solar_String
+from .refactored_classes import String
 from .models import PanelInfo, EnvironmentalData
-import flaskr.helper_functions as hp
+import flaskr.refactored_helper as hp
 from datetime import datetime, timedelta
 import pytz
 from zoneinfo import ZoneInfo
@@ -17,6 +17,8 @@ import shutil
 from memory_profiler import memory_usage
 import tracemalloc
 import cProfile, pstats, io
+import matplotlib.dates as mdates
+import uuid
 
 sm = Blueprint('string_modelling', __name__)
 
@@ -62,29 +64,33 @@ def upload_file():
 
 @sm.route('/place_pixels', methods=['POST'])
 def place_pixels():
+    #create a unique id so to avoid using browser caching
+    unique_id = uuid.uuid4().hex
     try:
+        output_dir = f'flaskr/static/outputs'
+
+        # Delete the entire directory if it exists
+        if os.path.exists(output_dir):
+            shutil.rmtree(output_dir)
+
+        # Recreate the (now empty) directory
+        os.makedirs(output_dir)
+
         panels = PanelInfo.query.with_entities(PanelInfo.panel_name).distinct().all()
         panel_names = [p.panel_name for p in panels]
 
         #create a test string and pixel coords
         global _instance
-        t_dict = hp.calculate_pixels(_instance)
+        t_dict = hp._calculate_pixels(_instance)
 
         #need to find the image first
         filepath = f"./flaskr/static/uploads"
-        output_dir = f"./flaskr/static/outputs"
-        os.makedirs(output_dir, exist_ok=True)
+
         if os.path.exists(filepath):
             files = sorted(os.listdir(filepath))
             if files:
                 first_file = os.path.join(filepath, files[0])
-                output_path = os.path.join(output_dir, files[0])
-
-        #clear the path first
-        for f in os.listdir(output_dir):
-            file_path = os.path.join(output_dir, f)
-            if os.path.isfile(file_path):
-                os.remove(file_path)
+                output_path = os.path.join(output_dir, f"{unique_id}.png")
 
         #open and draw pixels 
         with Image.open(first_file) as img:
@@ -93,18 +99,18 @@ def place_pixels():
             
             #gets the pixel location 
             for key in t_dict:
-                x,y = hp.key_to_pixel(key)
+                x,y = hp._key_to_pixel(key)
                 x = int(x)
                 y = int(y)
                 if 0 <= x < img.width and 0 <= y < img.height:
                     img.putpixel((x, y), (0, 0, 255))
                 
             img.save(output_path)
-            print(f'/static/outputs/{files[0]}')
+            print(f'/static/outputs/{unique_id}.png')
 
         return jsonify({
             "status": "success",
-            "image": f"/static/outputs/{files[0]}"  # relative path for web use
+            "image": f"/static/outputs/{unique_id}.png",  # relative path for web use
         })
 
     except Exception as e:
@@ -125,18 +131,17 @@ def build_string():
     rotation = int(request.form.get("rotation", 0))
 
     try:
-        _instance = Solar_String(panel_name, length=4.69, width=2.278, rotation=rotation, num_panels=panel_count, left_top_point=(x,y))
+        _instance = String(panel_name=panel_name, num_panels=panel_count, left_top_point=(x,y), rotation=rotation)
+        max_power, vmp, imp = _instance._model_power((100, 45), (1000, 45))
+        print(f'Max power is {max_power} and panel count is {panel_count} so per panel {max_power/panel_count}')
+        print(f'Vmp is {vmp} and Imp is {imp}')
+        max_power = max_power/panel_count
         place_pixels()
-        return jsonify({"status": "success"})
+        return jsonify({"status": "success", "power": hp._round_sf(max_power)}) 
 
     except Exception as e:
         print(f'Exception is {e}')
         return jsonify({"status": "error", "message": str(e)})
-
-@sm.route('/get_environment_data', methods=['POST'])
-def get_enviroment_data():
-    hp.create_edatabase(datetime.now(), 24, 69)
-    return place_pixels()
 
 #does the modelling for time against power
 @sm.route('/model_power', methods=['POST', 'GET'])
@@ -146,8 +151,6 @@ def time_power_model():
 
         #pull results from the page
         data = request.args if request.method == 'GET' else request.form
-
-        print(f'Request args: {request.args}')
 
         unit = data.get("unit", "minutes")
         time_int = int(data.get("time_int", 1))
@@ -162,13 +165,13 @@ def time_power_model():
 
         if last_event_id in (None, '', 'null'):
             open("output_text.log", "w").close()
+            open("unshaded_output.log", "w").close()
+            open("shade_log.txt", "w").close()
 
         try:
             last_id = int(last_event_id)
         except (ValueError, TypeError):
             last_id = None
-
-        print(f"File name is {p_filename}")
 
         #get correct timestep unit
         time_dict = {
@@ -178,14 +181,18 @@ def time_power_model():
         }
 
         t_unit = time_dict.get(unit)
-        timezone = ZoneInfo(hp.get_timezone(lat, lon))
+        timezone = ZoneInfo(hp._get_timezone(lat, lon))
         
         timestep = timedelta(**{unit: time_int})
-        print(timestep)
 
-        dni_df = hp.get_irr(start_date, end_date, lat, lon, time_int, t_unit, timezone)
+        dni_df = hp._get_irr(start_date, end_date, lat, lon, time_int, t_unit, timezone)
 
         app = current_app._get_current_object()
+
+        record = PanelInfo.query.filter_by(
+            panel_name=_instance.panel_name
+        ).first()
+
 
     except Exception as e:
         print(f"Error due to {e}")
@@ -193,7 +200,7 @@ def time_power_model():
 
     # Return response with proper headers for SSE
     response = Response(
-        generate(_instance, timestep, p_filename, start_date, end_date, app, dni_df, timezone, last_id, lat, lon), 
+        generate(_instance, timestep, p_filename, start_date, end_date, app, dni_df, timezone, last_id, lat, lon, record.noct), 
         mimetype='text/event-stream',
         headers={
             "Cache-Control": "no-cache",
@@ -204,13 +211,10 @@ def time_power_model():
     return response
 
 def generate(_instance, timestep, p_filename, start_date, end_date,
-        app, dni_df, timezone, last_id, lat, lon):
+        app, dni_df, timezone, last_id, lat, lon, noct):
 
     try:
         local_instance = copy.deepcopy(_instance)
-        print(f'Local copy {local_instance.num_panels}')
-
-        print(f'Last id is {last_id}')
 
         with app.app_context():
             try:
@@ -219,13 +223,10 @@ def generate(_instance, timestep, p_filename, start_date, end_date,
                 
                 #create the dictionary needed
                 pixel_file_path = os.path.join(current_app.root_path, 'static', 'tmp', p_filename)
-                print(f'Pixel file path: {pixel_file_path}')
                 with open(pixel_file_path, "r") as pixel_file:
-                    pixel_dict = hp.file_pixel_dict(pixel_file, start_date, end_date, timestep)
+                    pixel_dict = hp._file_pixel_dict(pixel_file, start_date, end_date, timestep)
 
-                print(f'pixel dict is {pixel_dict}')
-
-                panel_dict = hp.calculate_pixels(local_instance)
+                panel_dict = hp._calculate_pixels(local_instance)
             
             except Exception as e:
                 print(f'Cant simulate due to: {e}')
@@ -234,23 +235,17 @@ def generate(_instance, timestep, p_filename, start_date, end_date,
 
             time = start_date.replace(tzinfo=timezone)
             end = end_date.replace(tzinfo=timezone)
-            print(f'timezone is {timezone}')
-
-            print(dni_df.index)
-            print("Index type:", type(dni_df.index[0]))
-            print("Index example:", dni_df.index[0])
 
             iteration_count = 0
 
             while time <= end:
-                time_str = time.strftime("%H:%M")
+                time_str = time.strftime("%d:%H:%M")
                 #skips events already done
                 if last_id is not None and iteration_count <= last_id:
-                    time += timedelta(hours=1)
+                    time += timestep
                     iteration_count += 1
                     continue
 
-                print("Time in loop:", time, type(time))
                 try:
                     row = dni_df.loc[time]
                 except KeyError:
@@ -259,50 +254,68 @@ def generate(_instance, timestep, p_filename, start_date, end_date,
                     continue
                 
                 try:
-                    irr = row['dni']
+                    irr = row['irr']
                     temp = row['temp']
+
+                    _instance.reset_shade()
+                    local_instance.reset_shade()
+                    irr_drop = hp._set_shade_at_time(time, panel_dict, pixel_dict, local_instance)
+                    if irr_drop is not None:
+                        shaded_irr = irr-irr_drop
+                    else:
+                        shaded_irr = 100
+
+                    #get the average cell temp given shaded/unshaded
+                    unshaded_cell_temp = hp._estimate_temp(temp, noct, irr)
+                    shaded_cell_temp = hp._estimate_temp(temp, noct, shaded_irr)
+
                 except Exception as e:
                     print(f'Finally failed due to {e}')
+                    #string writing to the output
                     time += timedelta(hours=1)
                     continue
 
                 if irr == 0:
+                    str_out = f'{time_str}|0|0.0|0.0'
+
+                    #write to the output
+                    with open("output_text.log", "a") as f:
+                        f.write(f'{str_out}\n')
+
+                    with open("unshaded_output.log", "a") as f:
+                        f.write(f'{str_out}\n')
+
                     time += timestep
                     iteration_count += 1
                     continue
                 
-                try:
-                    #calculate the values like before
-                    out1 = local_instance.reset(irr, temp)
-                    #print(f'Output from reset is {out1}')
-                    
-                    out = hp.set_shade_at_time(time, panel_dict, pixel_dict)
-                    #print(f'Output from shade is {out}')
-                except Exception as e:
-                    print(f'Setting shade failed due to {e}')
-                    yield f"data: {json.dumps({'error': str(e)})}\n\n"
-                    return
-                
                 try:    
-                    Pmax, Vmp, Imp = local_instance.model_power()
-                    print(f'pmax found as {Pmax}')
+                    Pmax, Vmp, Imp = local_instance._model_power((shaded_irr, shaded_cell_temp), (irr, unshaded_cell_temp))
                     
                     data = {
-                        'pmax': float(Pmax) if Pmax is not None else 0.0,
-                        'e_info': float(irr) if irr is not None else 0.0,
+                        'pmax': hp._round_sf(float(Pmax)) if Pmax is not None else 0.0,
+                        'e_info': hp._round_sf(float(irr)) if irr is not None else 0.0,
                         'time': time_str,
+                        'temp': hp._round_sf(temp),
                         'id': iteration_count
                     }
 
                     json_data = json.dumps(data)
-                    print(f"DEBUG at {time}: Pmax={Pmax}, irr={irr}, temp={temp}")
-                    print(f"Serialized data: {json_data}")
+                    # print(f"DEBUG at {time}: Pmax={Pmax}, irr={irr}, temp={temp}")
+                    # print(f"Serialized data: {json_data}")
 
                     #string writing to the output
-                    str_out = f'{time_str}|{Pmax}|{Vmp}|{Imp}'
+                    #normalise
+                    str_out = f'{time_str}|{Pmax/1000}|{Vmp}|{Imp}|irr is {irr}|temp is{temp}'
 
                     #write to the output
                     with open("output_text.log", "a") as f:
+                        f.write(f'{str_out}\n')
+
+                    Pmax, Vmp, Imp = _instance._model_power((100, shaded_cell_temp), (irr, unshaded_cell_temp))
+                    str_out = f'{time_str}|{Pmax/1000}|{Vmp}|{Imp}|{irr}|{temp}'
+
+                    with open("unshaded_output.log", "a") as f:
                         f.write(f'{str_out}\n')
 
                     yield f"data: {json_data}\n\n"
@@ -329,13 +342,14 @@ def generate(_instance, timestep, p_filename, start_date, end_date,
 
         def _draw():
             try:
-                graph_paths = draw_graph(start_date, end_date, lat, 
-                    lon, local_instance.panel_name)
+                graph_paths, shaded, unshaded = draw_graph(start_date, end_date, lat, 
+                    lon, local_instance.panel_name, timestep)
 
                 if graph_paths is None:
                     raise Exception("No graphs formed")
                 
-                graph_queue.put({'success': True, 'paths': graph_paths})
+                graph_queue.put({'success': True, 'paths': graph_paths, 
+                    'shadedPower': shaded, 'unshadedPower': unshaded})
 
             except Exception as e:
                 print(f'Graph drawing failed: {e}')
@@ -358,7 +372,9 @@ def generate(_instance, timestep, p_filename, start_date, end_date,
             if result['success']:
                 graph_data = {
                     'type': 'graphs_ready',
-                    'graphs': result['paths']
+                    'graphs': result['paths'],
+                    'shadedPower': result['shadedPower'],
+                    'unshadedPower': result['unshadedPower']
                 }
                 yield f"data: {json.dumps(graph_data)}\n\n"
             else:
@@ -398,11 +414,25 @@ def save_shade_file():
         return jsonify({"filename": file.filename})
     return jsonify({"error": "No file uploaded"}), 400
 
+@sm.route("/update_power", methods=['POST'])
+def update_power():
+    global _instance
+
+    original_power = float(request.form.get('original_power'))
+    new_power = float(request.form.get('update_power'))
+
+    voltage_offset = new_power/original_power
+
+    _instance.voltage_offset = voltage_offset
+
+    return jsonify({"status": "success", "new_power": new_power})
 
 #draws graphs of over time
-def draw_graph(start_date, end_date, lat, lon, panel_name):
+def draw_graph(start_date, end_date, lat, lon, panel_name, timestep):
     results = [[],[],[]]
     times = []
+    
+    u_results = [[],[],[]]
 
     #sets up the results
     with open("output_text.log", "r") as f:
@@ -413,18 +443,24 @@ def draw_graph(start_date, end_date, lat, lon, panel_name):
             #splits the results
             divided_res = result.split('|')
 
-            if len(divided_res) != 4:
-                print(f"Skipping malformed line: {line}")
-                continue
-
             #place them in the correct part of the results
             times.append(divided_res[0])
             results[0].append(float(divided_res[1]))
             results[1].append(float(divided_res[2]))
             results[2].append(float(divided_res[3]))
 
-    print(results)
+    #sets up the results
+    with open("unshaded_output.log", "r") as f:
+        lines = f.readlines()
+        for line in lines:
+            result = line.strip()
 
+            #splits the results
+            divided_res = result.split('|')
+
+            u_results[0].append(float(divided_res[1]))
+            u_results[1].append(float(divided_res[2]))
+            u_results[2].append(float(divided_res[3]))
 
     output_dir = f'flaskr/static/powertimes/{panel_name}/{lat}{lon}/{start_date}'
     web_dir = f'static/powertimes/{panel_name}/{lat}{lon}/{start_date}'
@@ -435,58 +471,81 @@ def draw_graph(start_date, end_date, lat, lon, panel_name):
     # Recreate the (now empty) directory
     os.makedirs(output_dir)
 
+    #create a unique id so to avoid using browser caching
+    unique_id = uuid.uuid4().hex
+
     plot_paths = []
 
     #creates the graphs and saves them to the plot
     # --- Plot Power vs Voltage ---
+    power_masked = break_zero_blocks(times, results[0])
+    u_power_masked = break_zero_blocks(times, u_results[0])
     plt.figure()
-    plt.plot(times, results[0], label='Power over Time', color='blue')
+    plt.plot(times, u_power_masked, label='Unshaded Power over Time', color='red')
+    plt.plot(times, power_masked, label='Shaded Power over Time', color='blue')
     plt.xlabel('Time')
-    plt.ylabel('Power (W)')
-    plt.title(f'{start_date}-{end_date} Power over Time')
+    plt.ylabel('Power (kW)')
+    plt.title(f'Power over Time')
+    plt.gcf().autofmt_xdate(rotation=45)
+    plt.gca().xaxis.set_major_locator(mdates.AutoDateLocator(minticks=10, maxticks=18))
     plt.grid(True)
     plt.legend()
     plt.tight_layout()
 
-    power_vs_time_path = os.path.join(output_dir, f'{start_date}_{end_date}_P.png')
-    web_path = os.path.join(web_dir, f'{start_date}_{end_date}_P.png')
+    power_vs_time_path = os.path.join(output_dir, f'{start_date}_{end_date}_{unique_id}P.png')
+    web_path = os.path.join(web_dir, f'{start_date}_{end_date}_{unique_id}P.png')
     plt.savefig(power_vs_time_path)
     plt.close()
     plot_paths.append(web_path)
 
     # --- Plot Power vs Current ---
+    voltage_masked = break_zero_blocks(times, results[1])
+    u_voltage_masked = break_zero_blocks(times, u_results[1])
     plt.figure()
-    plt.plot(times, results[1], label='Voltage over Time', color='green')
+    plt.plot(times, u_voltage_masked, label='Unshaded Voltage over Time', color='blue')
+    plt.plot(times, voltage_masked, label='Shaded Voltage over Time', color='green')
     plt.xlabel('Time')
     plt.ylabel('Voltages (V)')
-    plt.title(f'{start_date}-{end_date} Voltage over Time')
+    plt.title(f'Voltage over Time') 
+    plt.gcf().autofmt_xdate(rotation=45)
+    plt.gca().xaxis.set_major_locator(mdates.AutoDateLocator(minticks=10, maxticks=18))
     plt.grid(True)
     plt.legend()
     plt.tight_layout()
 
-    voltage_vs_time_path = os.path.join(output_dir, f'{start_date}_{end_date}_V.png')
-    web_path = os.path.join(web_dir, f'{start_date}_{end_date}_V.png')
+    voltage_vs_time_path = os.path.join(output_dir, f'{start_date}_{end_date}_{unique_id}V.png')
+    web_path = os.path.join(web_dir, f'{start_date}_{end_date}_{unique_id}V.png')
     plt.savefig(voltage_vs_time_path)
     plt.close()
     plot_paths.append(web_path)
 
     # --- Plot Voltage vs Current ---
+    current_masked = break_zero_blocks(times, results[2])
+    u_current_masked = break_zero_blocks(times, u_results[2])
     plt.figure()
-    plt.plot(times, results[2], label='Current over Time', color='red')
+    plt.plot(times, u_current_masked, label='Unshaded Current over Time', color='green')
+    plt.plot(times, current_masked, label='Shaded Current over Time', color='red')
     plt.xlabel('Time')
     plt.ylabel('Current (A)')
-    plt.title(f'{start_date}-{end_date} Current over Time')
+    plt.title(f'Current over Time')
+    plt.gcf().autofmt_xdate(rotation=45)
+    plt.gca().xaxis.set_major_locator(mdates.AutoDateLocator(minticks=10, maxticks=18))
     plt.grid(True)
     plt.legend()
     plt.tight_layout()
 
-    current_vs_time_path = os.path.join(output_dir, f'{start_date}_{end_date}_I.png')
-    web_path = os.path.join(web_dir, f'{start_date}_{end_date}_I.png')
+    current_vs_time_path = os.path.join(output_dir, f'{start_date}_{end_date}_{unique_id}I.png')
+    web_path = os.path.join(web_dir, f'{start_date}_{end_date}_{unique_id}I.png')
     plt.savefig(current_vs_time_path)
     plt.close()
     plot_paths.append(web_path)
 
-    return plot_paths
+    #calculate shaded/unshaded results
+    shaded_output = hp._round_sf(hp._khw_output(timestep, results[0]))
+    unshaded_output = hp._round_sf(hp._khw_output(timestep, u_results[0]))
+    
+
+    return plot_paths, shaded_output, unshaded_output
 
 # Print memory and CPU usage
 def print_resource_usage(tag=""):
@@ -494,3 +553,17 @@ def print_resource_usage(tag=""):
     cpu_percent = process.cpu_percent(interval=0.1)
     with open("resource_usage.log", "a") as f:
         f.write(f"[{tag}] Memory: {mem_mb:.2f} MB | CPU: {cpu_percent:.1f}%\n")
+
+import numpy as np
+
+def break_zero_blocks(times, values):
+    arr = np.array(values, dtype=float)
+    mask = arr != 0
+
+    if np.any(mask):
+        first_idx = np.argmax(mask)  
+        last_idx = len(arr) - np.argmax(mask[::-1]) - 1
+        # replace start/end zeros with NaN
+        arr[:first_idx] = np.nan
+        arr[last_idx+1:] = np.nan
+    return arr
