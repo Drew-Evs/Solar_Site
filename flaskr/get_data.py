@@ -137,11 +137,35 @@ def library_conditions(panel_name, G, T):
         Vth = k * T_K / q 
         n = nNsVth / (Ns * Vth)
 
-        return Iph, Is, n, Rs/Ns, Rp/Ns
-
+        return Iph, Is, nNsVth, Rs, Rp
+        
     except Exception as e:
         print(f'{panel_name} not in library: {e}')
         raise
+
+#gets the whole module lookup info
+def lib_mod_lookup(panel_name, G, T):
+    cec_modules = pvlib.pvsystem.retrieve_sam('CECMod')
+    try:
+        module = cec_modules[panel_name]
+    
+        Iph, Is, Rs, Rp, nNsVth = pvlib.pvsystem.calcparams_desoto(
+            effective_irradiance = G,
+            temp_cell = T,
+            alpha_sc=module['alpha_sc'],
+            a_ref=module['a_ref'],
+            I_L_ref=module['I_L_ref'],
+            I_o_ref=module['I_o_ref'],
+            R_sh_ref=module['R_sh_ref'],
+            R_s=module['R_s'],
+            EgRef=1.121,
+            dEgdT=-0.0002677
+        )
+
+        return Iph, Is, Rs, Rp, nNsVth
+    except:
+        print("Failed")
+        return None
 
 #builds a database of panels at standard conditions
 def build_database_mod():

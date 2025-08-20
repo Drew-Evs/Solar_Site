@@ -219,30 +219,6 @@ def round_sf(x, sig=3):
     from math import log10, floor
     return round(x, sig - int(floor(log10(abs(x)))) - 1)
 
-def calculate_pixels(string):
-    location_dict = {}
-
-    #original start of string
-    x, y = string.left_top_point
-
-    #iterate through each panel
-    for i, panel in enumerate(string.panel_list):
-        #print(f'Panel number {i}')
-        col = i*6
-        row = 0
-        for module in panel.module_list:
-            for j in range(module.rows):
-                for cell in module.cell_array[j]:
-                    key = get_cell_pixel_pos(string, row, col)
-                    if key in location_dict:
-                        location_dict[key].append(cell)
-                    else:
-                        location_dict[key] = [cell]
-                    col += 1
-                row += 1
-                col = i*6
-
-    return location_dict
 
 def get_cell_pixel_pos(string, row, col):
     #key values
@@ -289,20 +265,24 @@ def file_pixel_dict(filename, start_date, end_date, timestep):
     duration_frame = get_times(filename)
 
     while time <= end_date:
-        in_range = get_shade_at_time(time, duration_frame)
-        pixel_x = in_range['Pixel X'].values
-        pixel_y = in_range['Pixel Y'].values
+        try:
+            in_range = get_shade_at_time(time, duration_frame)
+            pixel_x = in_range['Pixel X'].values
+            pixel_y = in_range['Pixel Y'].values
+            irr_drop = in_range['Average Power Blocked (W/m²)'].values
 
-        pixel_arr = [pixel_to_key(x, y) for x, y in zip(pixel_x, pixel_y)] if not in_range.empty else []
+            pixel_arr = [pixel_to_key(x, y) for x, y in zip(pixel_x, pixel_y)] if not in_range.empty else []
 
-        pixel_dict[datetime.strftime(time, d_format)] = pixel_arr
+            pixel_dict[datetime.strftime(time, d_format)] = (pixel_arr, irr_drop)
 
-        time += timestep
+            time += timestep
+        except Exception as e:
+            print(f'Shading failed due to exception {e}')
 
     return pixel_dict
 
 def get_times(filename): 
-    df = pd.read_csv(filename, parse_dates=["First Shadow Timestamp", "Last Shadow Timestamp"], dayfirst=True)
+    df = pd.read_csv(filename, parse_dates=["Shadow Start Timestamp", "Shadow End Timestamp"], dayfirst=True)
 
     return df
 
@@ -341,8 +321,6 @@ def get_irr(start_date, end_date, lat, lon, timestep,
     times = pd.date_range(start=f'{start_date} 00:00', end=f'{end_date} 23:59',
         freq=f'{timestep}{timestep_unit}', tz=timezone)
 
-    print(timezone)
-
     #get the irradiance of the clearsky
     clearsky = site.get_clearsky(times)
 
@@ -375,7 +353,6 @@ def get_irr(start_date, end_date, lat, lon, timestep,
 
     #get the high and low temperature 
     month = start_date.strftime('%m')
-    print(month)
 
     t_high, t_low = get_avg_temp(lat, lon, month)
     #get the mean and difference from mean (amplitude)
@@ -409,26 +386,27 @@ def get_irr(start_date, end_date, lat, lon, timestep,
 def set_shade_at_time(time, panel_dict, file_dict, _instance, irr, shaded_temp, log_path="shade_log.txt"):
     time_str = time.strftime('%d/%m/%Y %H:%M:%S')
     try:
-        pixels = file_dict.get(time_str, [])
         shaded_cells = set()
         crossover_coords = []
 
         parent_list = set()
 
-        for pixel in pixels:
+        pixels, irr_drop = file_dict.get(time_str, ([],[]))
+        drop = None
+
+        for pixel, drop in zip(pixels, irr_drop):
             cells = panel_dict.get(pixel, [])
             if len(cells) > 1:
                 crossover_coords.append(pixel)
             for cell in cells:
-                cell.set_shade(irr=100, temp=shaded_temp)
+                cell.set_shade(irr=(irr-drop), temp=shaded_temp)
                 cell.parent.update_shaded(True)
                 parent_list.add(cell.parent)
-                #shaded_cells.add(str(cell))  
+                shaded_cells.add(str(cell))  
 
         output = f"Shade set successfully for {time_str}"
 
-        '''
-        used for logging and debugging not needed
+        #used for logging and debugging not needed
         shaded_count = 0
 
         for module in parent_list:
@@ -461,28 +439,45 @@ def set_shade_at_time(time, panel_dict, file_dict, _instance, irr, shaded_temp, 
             f"Using the _instance",
             f"Number of shaded modules {ins_shaded_count}",
             f"Number of shaded cells {ins_shaded_cells}",
+            "-" * 50,
+            f"Irradiance at start is {irr}",
+            f"Shade is -{drop}",
+            f"Shade on shaded panel is {irr-drop}",
             "-" * 50
         ]
 
         # Write log
         with open(log_path, "a") as log_file:
             log_file.write("\n".join(log_content) + "\n")
-        '''
 
     except Exception as e:
         output = f"Failed due to {e}"
 
-        # with open(log_path, "a") as log_file:
-        #     log_file.write(f"{time_str} - ERROR: {e}\n{'-'*50}\n")
+        with open(log_path, "a") as log_file:
+            log_file.write(f"{time_str} - ERROR: {e}\n{'-'*50}\n")
 
-    return output
+# def set_parent_shade(time, panel_dict, file_dict, _instance, irr, shaded_temp):
+#     time_str = time.strftime('%d/%m/%Y %H:%M:%S')
+
+#     pixels, irr_drop = file_dict.get(time_str, ([],[]))
+#     drop = None
+
+#     for pixel, drop in zip(pixels, irr_drop):
+#         cells = panel_dict.get(pixel, [])
+#         if len(cells) > 1:
+#             crossover_coords.append(pixel)
+#         for cell in cells:
+#             cell.parent.irradiance = irr-drop
+#             cell.parent.temperature=shaded_temp
+#             cell.parent.update_shaded(True) 
+
 
 #given a certain time returns the pixels that are shaded at that time
 def get_shade_at_time(time, df):
     d_format = "%d/%m/%Y %H:%M:%S"
     in_range = df[
-        (df["First Shadow Timestamp"] <= time) &
-        (df["Last Shadow Timestamp"] >= time)
+        (df["Shadow Start Timestamp"] <= time) &
+        (df["Shadow End Timestamp"] >= time)
     ]
 
     return in_range

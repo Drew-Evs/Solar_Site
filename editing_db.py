@@ -73,17 +73,29 @@ def clear_custom_and_panelinfo():
     app = create_app()
     with app.app_context():
         # --- 1. Clear all entries in custom_panel ---
-        deleted_custom = db.session.query(ModuleLookup).delete()
+        deleted_custom = db.session.query(CustomPanel).delete()
         print(f"Deleted {deleted_custom} rows from CustomPanel")
 
         # --- 2. Delete PanelInfo entries with id >= 21536 ---
-        # deleted_panelinfo = db.session.query(PanelInfo).filter(PanelInfo.id >= 21536).delete()
-        # print(f"Deleted {deleted_panelinfo} rows from PanelInfo (id >= 21536)")
+        deleted_panelinfo = db.session.query(PanelInfo).filter(PanelInfo.id >= 21536).delete()
+        print(f"Deleted {deleted_panelinfo} rows from PanelInfo (id >= 21536)")
+
+        deleted_lookup = db.session.query(ModuleLookup).delete()
+        print(f"Deleted {deleted_lookup} rows from CustomPanel")
 
         # Commit changes
         db.session.commit()
         print("Database cleanup complete.")
 
+def clear_whole_mod_lookup():
+    from flaskr import create_app, db
+    from flaskr.models import WholeModuleLookup  # adjust imports to your actual models
+
+    app = create_app()
+    with app.app_context():
+        # --- 1. Clear all entries in custom_panel ---
+        deleted_custom = db.session.query(WholeModuleLookup).delete()
+        print(f"Deleted {deleted_custom} rows from WholeModuleLookup")
 
 if __name__ == "__main__":
    clear_custom_and_panelinfo()

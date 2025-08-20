@@ -4,7 +4,7 @@ from sqlalchemy import and_
 from .classes import Solar_Cell, Panel
 from . import db
 import math 
-import flaskr.helper_functions as hp
+import flaskr.refactored_helper as hp
 
 pi = Blueprint('panel_info', __name__)
 
@@ -128,7 +128,7 @@ def new_panel():
         return jsonify({'status': 'error', 'message': 'Already exists in the database'})
 
     try:
-        i_l_ref, i_o_ref, r_s, r_sh_ref, a_ref, alpha_sc = hp.param_extraction(Voc, Isc, Vmp, Imp, 
+        i_l_ref, i_o_ref, r_s, r_sh_ref, a_ref, alpha_sc = hp._custom_panel_extraction(Voc, Isc, Vmp, Imp, 
                                                     num_cells, alpha_sc, beta_voc, gamma_pmp, panel_type)
     except Exception as e:
         print(f"failed due to {e}")
@@ -139,6 +139,17 @@ def new_panel():
     print(f"\nExpected Pmp = Vmp * Imp = {Vmp} * {Imp} = {expected_pmp:.1f} W")
     print(f"\n Alpha sc is {alpha_sc}")
 
+    print(f"Storing module-level parameters for {panel_name}:")
+    print(f"  Alpha_sc = {alpha_sc} A/°C")
+    print(f"  a_ref = {a_ref}")
+    print(f"  I_L_ref = {i_l_ref} A")
+    print(f"  I_o_ref = {i_o_ref} A")
+    print(f"  R_s = {r_s} Ω")
+    print(f"  R_sh_ref = {r_sh_ref} Ω")
+    print(f"  Num cells = {num_cells}")
+    print(f"  Expected Pmp = {expected_pmp:.1f} W")
+
+
     new_custom_record = CustomPanel(
         panel_name = panel_name,
         alpha_sc = alpha_sc,
@@ -147,13 +158,14 @@ def new_panel():
         i_o_ref = i_o_ref,
         r_sh_ref = r_sh_ref,
         r_s = r_s,
-        num_cells = num_cells
+        num_cells = num_cells,
+        num_diodes = num_diodes
     )
 
     db.session.add(new_custom_record)
     db.session.commit()
 
-    pmax, vmp, imp = hp.calculate_pmp_simple(i_l_ref, i_o_ref, r_s, r_sh_ref, a_ref, alpha_sc=alpha_sc)
+    pmax, vmp, imp = hp._calculate_pmp_simple(i_l_ref, i_o_ref, r_s, r_sh_ref, a_ref, alpha_sc=alpha_sc)
 
     new_panel_record = PanelInfo(
         panel_name=panel_name,

@@ -2,9 +2,9 @@ from flask import Blueprint, render_template, request, session, url_for, current
 import os
 import json
 from PIL import Image
-from .classes import Solar_String
+from .refactored_classes import String
 from .models import PanelInfo, EnvironmentalData
-import flaskr.helper_functions as hp
+import flaskr.refactored_helper as hp
 from datetime import datetime, timedelta
 import pytz
 from zoneinfo import ZoneInfo
@@ -81,7 +81,7 @@ def place_pixels():
 
         #create a test string and pixel coords
         global _instance
-        t_dict = hp.calculate_pixels(_instance)
+        t_dict = hp._calculate_pixels(_instance)
 
         #need to find the image first
         filepath = f"./flaskr/static/uploads"
@@ -99,7 +99,7 @@ def place_pixels():
             
             #gets the pixel location 
             for key in t_dict:
-                x,y = hp.key_to_pixel(key)
+                x,y = hp._key_to_pixel(key)
                 x = int(x)
                 y = int(y)
                 if 0 <= x < img.width and 0 <= y < img.height:
@@ -131,11 +131,13 @@ def build_string():
     rotation = int(request.form.get("rotation", 0))
 
     try:
-        _instance = Solar_String(panel_name, length=4.69, width=2.278, rotation=rotation, num_panels=panel_count, left_top_point=(x,y))
-        _instance.reset(950, 25)
-        max_power, Vmp, Imp = _instance.panel_list[0].model_power()
+        _instance = String(panel_name=panel_name, num_panels=panel_count, left_top_point=(x,y), rotation=rotation)
+        max_power, vmp, imp = _instance._model_power((100, 45), (1000, 45))
+        print(f'Max power is {max_power} and panel count is {panel_count} so per panel {max_power/panel_count}')
+        print(f'Vmp is {vmp} and Imp is {imp}')
+        max_power = max_power/panel_count
         place_pixels()
-        return jsonify({"status": "success", "power": hp.round_sf(max_power)})
+        return jsonify({"status": "success", "power": hp._round_sf(max_power)}) 
 
     except Exception as e:
         print(f'Exception is {e}')
@@ -179,11 +181,11 @@ def time_power_model():
         }
 
         t_unit = time_dict.get(unit)
-        timezone = ZoneInfo(hp.get_timezone(lat, lon))
+        timezone = ZoneInfo(hp._get_timezone(lat, lon))
         
         timestep = timedelta(**{unit: time_int})
 
-        dni_df = hp.get_irr(start_date, end_date, lat, lon, time_int, t_unit, timezone)
+        dni_df = hp._get_irr(start_date, end_date, lat, lon, time_int, t_unit, timezone)
 
         app = current_app._get_current_object()
 
@@ -222,9 +224,9 @@ def generate(_instance, timestep, p_filename, start_date, end_date,
                 #create the dictionary needed
                 pixel_file_path = os.path.join(current_app.root_path, 'static', 'tmp', p_filename)
                 with open(pixel_file_path, "r") as pixel_file:
-                    pixel_dict = hp.file_pixel_dict(pixel_file, start_date, end_date, timestep)
+                    pixel_dict = hp._file_pixel_dict(pixel_file, start_date, end_date, timestep)
 
-                panel_dict = hp.calculate_pixels(local_instance)
+                panel_dict = hp._calculate_pixels(local_instance)
             
             except Exception as e:
                 print(f'Cant simulate due to: {e}')
@@ -255,10 +257,17 @@ def generate(_instance, timestep, p_filename, start_date, end_date,
                     irr = row['irr']
                     temp = row['temp']
 
+                    _instance.reset_shade()
+                    local_instance.reset_shade()
+                    irr_drop = hp._set_shade_at_time(time, panel_dict, pixel_dict, local_instance)
+                    if irr_drop is not None:
+                        shaded_irr = irr-irr_drop
+                    else:
+                        shaded_irr = 100
 
                     #get the average cell temp given shaded/unshaded
-                    unshaded_cell_temp = hp.estimate_temp(temp, noct, irr)
-                    shaded_cell_temp = hp.estimate_temp(temp, noct, 100)
+                    unshaded_cell_temp = hp._estimate_temp(temp, noct, irr)
+                    shaded_cell_temp = hp._estimate_temp(temp, noct, shaded_irr)
 
                 except Exception as e:
                     print(f'Finally failed due to {e}')
@@ -280,26 +289,14 @@ def generate(_instance, timestep, p_filename, start_date, end_date,
                     iteration_count += 1
                     continue
                 
-                try:
-                    #calculate the values like before
-                    _instance.reset(irr, unshaded_cell_temp)
-                    local_instance.reset(irr, unshaded_cell_temp)
-                    hp.set_shade_at_time(time, panel_dict, pixel_dict, local_instance, 
-                        irr, shaded_cell_temp)
-
-                except Exception as e:
-                    print(f'Setting shade failed due to {e}')
-                    yield f"data: {json.dumps({'error': str(e)})}\n\n"
-                    return
-                
                 try:    
-                    Pmax, Vmp, Imp = local_instance.model_power()
+                    Pmax, Vmp, Imp = local_instance._model_power((shaded_irr, shaded_cell_temp), (irr, unshaded_cell_temp))
                     
                     data = {
-                        'pmax': hp.round_sf(float(Pmax)) if Pmax is not None else 0.0,
-                        'e_info': hp.round_sf(float(irr)) if irr is not None else 0.0,
+                        'pmax': hp._round_sf(float(Pmax)) if Pmax is not None else 0.0,
+                        'e_info': hp._round_sf(float(irr)) if irr is not None else 0.0,
                         'time': time_str,
-                        'temp': hp.round_sf(temp),
+                        'temp': hp._round_sf(temp),
                         'id': iteration_count
                     }
 
@@ -309,14 +306,14 @@ def generate(_instance, timestep, p_filename, start_date, end_date,
 
                     #string writing to the output
                     #normalise
-                    str_out = f'{time_str}|{Pmax/1000}|{Vmp}|{Imp}'
+                    str_out = f'{time_str}|{Pmax/1000}|{Vmp}|{Imp}|irr is {irr}|temp is{temp}'
 
                     #write to the output
                     with open("output_text.log", "a") as f:
                         f.write(f'{str_out}\n')
 
-                    Pmax, Vmp, Imp = _instance.model_power()
-                    str_out = f'{time_str}|{Pmax/1000}|{Vmp}|{Imp}'
+                    Pmax, Vmp, Imp = _instance._model_power((100, shaded_cell_temp), (irr, unshaded_cell_temp))
+                    str_out = f'{time_str}|{Pmax/1000}|{Vmp}|{Imp}|{irr}|{temp}'
 
                     with open("unshaded_output.log", "a") as f:
                         f.write(f'{str_out}\n')
@@ -446,9 +443,6 @@ def draw_graph(start_date, end_date, lat, lon, panel_name, timestep):
             #splits the results
             divided_res = result.split('|')
 
-            if len(divided_res) != 4:
-                continue
-
             #place them in the correct part of the results
             times.append(divided_res[0])
             results[0].append(float(divided_res[1]))
@@ -463,9 +457,6 @@ def draw_graph(start_date, end_date, lat, lon, panel_name, timestep):
 
             #splits the results
             divided_res = result.split('|')
-
-            if len(divided_res) != 4:
-                continue
 
             u_results[0].append(float(divided_res[1]))
             u_results[1].append(float(divided_res[2]))
@@ -550,8 +541,8 @@ def draw_graph(start_date, end_date, lat, lon, panel_name, timestep):
     plot_paths.append(web_path)
 
     #calculate shaded/unshaded results
-    shaded_output = hp.round_sf(hp.khw_output(timestep, results[0]))
-    unshaded_output = hp.round_sf(hp.khw_output(timestep, u_results[0]))
+    shaded_output = hp._round_sf(hp._khw_output(timestep, results[0]))
+    unshaded_output = hp._round_sf(hp._khw_output(timestep, u_results[0]))
     
 
     return plot_paths, shaded_output, unshaded_output
