@@ -1,6 +1,9 @@
 import numpy as np
 from .models import PanelInfo
 from flaskr.simple_calc import _get_bypass_current, _calculate_voltage, _get_current_from_voltage, _get_cell_conditions, _get_voltage_from_current
+import os
+import pandas as pd
+import flaskr.refactored_helper as hp
 '''
 @class simplified version of the cell class
     want to hold whether the cell is shaded/not shaded
@@ -10,6 +13,7 @@ from flaskr.simple_calc import _get_bypass_current, _calculate_voltage, _get_cur
 class Cell():
     def __init__(self):
         self.shaded = False
+        self.parent = None
     
     def _set_shade(self, shade_val=True):
         self.shaded = shade_val
@@ -28,6 +32,7 @@ class Module():
 
     #need to get the voltage of the module
     def _get_voltage(self, *values):
+        shaded = False
         shaded_voltage, unshaded_voltage = values
 
         voltage = _calculate_voltage(self.cell_list, shaded_voltage, unshaded_voltage)
@@ -47,6 +52,7 @@ class Module():
 class Panel():
     def __init__(self, cells_per_module, num_modules):
         self.module_list = [Module(cells_per_module) for _ in range(num_modules)]
+        self.shaded = False
 
     #adds up the voltage of all modules
     def _get_voltage(self, *values):
@@ -101,6 +107,7 @@ class String():
             #need to input the number of diodes per module, and number of cells per module
             self.panel_list = [Panel(Ns//Nd, Nd) for _ in range(num_panels)]
             self.panel_name = panel_name
+            self.num_panels = num_panels
 
             #sets the irradiance/temperature values of the un/shaded cells
             self._set_shade_conditions((1000, 25), (100, 25))
@@ -152,7 +159,7 @@ class String():
         return voltage
 
     #model power to find the max
-    def _model_power(self, shaded, unshaded, draw_graph=False):
+    def _model_power(self, shaded, unshaded, time, site_name='Windmill', output_csv=False):
         #takes in the shaded/unshaded conditions
         self._set_shade_conditions(shaded, unshaded)
 
@@ -173,16 +180,61 @@ class String():
         results = [(i, v) for i, v in zip(currents, voltages)]
         powers = [i * v for i, v in results]
 
-        #draws graph if set to true
-        if draw_graph:
-            hp._draw_graph(powers, voltages, currents)
-
         max_index = np.argmax(powers)
         
         Pmax = powers[max_index]
         Vmp = voltages[max_index]
         Imp = currents[max_index]
+
+        if output_csv == True:
+            self._create_csv(Imp, time, site_name)
+
         return Pmax, Vmp, Imp
+
+    #create a csv of the information
+    def _create_csv(self, Imp, time, site_name):
+        shaded_voltage, unshaded_voltage = self._calc_voltages(Imp)
+
+        #list of results
+        panel_num = []
+        voltages = []
+        shade = []
+        
+        for i, panel in enumerate(self.panel_list):
+            shaded = False
+            temp_voltage = panel._get_voltage(shaded_voltage, unshaded_voltage)
+
+            voltages.append(
+                temp_voltage*self.voltage_offset if self.voltage_offset is not None
+                else temp_voltage
+            )
+
+            all_cells = panel._all_cells()
+            for cell in all_cells:
+                if cell.shaded == True:
+                    shaded = True
+                    break
+
+            panel_num.append(i+1)
+            shade.append(shaded)
+        
+        powers = [Imp * v for v in voltages]
+
+        data = {
+            'Panel Number': panel_num,
+            'Current': [hp._round_sf(float(Imp))] * self.num_panels,
+            'Voltage': [hp._round_sf(float(v)) for v in voltages],
+            'Power': [hp._round_sf(float(p)) for p in powers],
+            'Shaded': shade
+        }
+
+        df = pd.DataFrame(data)
+
+        #save to folder
+        folder_name = f"{site_name}_output_csv"
+        file_name = f"{site_name}_{time.strftime('%Y:%m:%d_%H:%M')}.csv"
+        full_path = os.path.join("csv_outputs", folder_name, file_name)
+        df.to_csv(full_path, index=False)
 
     #returns a list of all cells
     def all_cells(self):

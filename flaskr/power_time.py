@@ -22,13 +22,23 @@ import os
     - the latitude/longitude coordinates
     - the name of the pixel file (file needs to be saved in flaskr/static/tmp)
     - the root path of the app
+    - added site_name to save csv information
 @outputs - a csv file with the vmp, imp and pmax at each time
     - a log file with each active bypass diode
     - graphs of power over time
 '''
 def _model_power_time(root_path, coords=(0,0), panel_name='Jinko_Solar_Co___Ltd_JKM410M_72HL_V', num_panels=28,
         rotation=90, voltage_offset=None, timestep_unit='hours', timestep_integer=1, start_date=datetime.now(), 
-        end_date=datetime.now()+timedelta(days=1), pixel_file="_shadow_events_average_power_blocked.csv", lat=0, lon=0):
+        end_date=datetime.now()+timedelta(days=1), pixel_file="_shadow_events_average_power_blocked.csv", lat=0, lon=0,
+        site_name='Windmill'):
+
+    # Create the full path inside csv_outputs
+    root_csv_dir = "csv_outputs"
+    folder_name = f"{site_name}_output_csv"
+    full_path = os.path.join(root_csv_dir, folder_name)
+
+    # Create both csv_outputs and Windmill_output_csv inside it
+    os.makedirs(full_path, exist_ok=True)
 
     #first need to construct the string
     _string_instance = String(panel_name=panel_name, num_panels=num_panels, left_top_point=coords, rotation=rotation)
@@ -101,8 +111,8 @@ def _model_power_time(root_path, coords=(0,0), panel_name='Jinko_Solar_Co___Ltd_
             continue
 
         #if not model the time of both shaded and unshaded
-        Pmax, Vmp, Imp = _string_instance._model_power((shaded_irr, shaded_cell_temp), (irr, unshaded_cell_temp))
-        Pmax2, Vmp2, Imp2 = _string_copy._model_power((shaded_irr, shaded_cell_temp), (irr, unshaded_cell_temp))
+        Pmax, Vmp, Imp = _string_instance._model_power((shaded_irr, shaded_cell_temp), (irr, unshaded_cell_temp), time_str, site_name=site_name, output_csv=True)
+        Pmax2, Vmp2, Imp2 = _string_copy._model_power((shaded_irr, shaded_cell_temp), (irr, unshaded_cell_temp), time_str)
 
         #then add to df
         df_unshade.loc[len(df_unshade)] = [time_str, Pmax2, Vmp2, Imp2]

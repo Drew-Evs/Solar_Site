@@ -425,10 +425,9 @@ function updateRealTimeData(data) {
 function displayGraphs(graphPaths, shadedPower, unshadedPower) {
     let graphContainer = document.getElementById('graph-container');
     let graphGrid = document.getElementById('graph-grid');
-    const powerInfoDiv = document.createElement('div');
+    let powerInfoDiv = document.createElement('div');
     powerInfoDiv.innerHTML = ''
-    
-    // Clear existing graphs
+    graphContainer.innerHTML = '';
     graphGrid.innerHTML = '';
     
     let pathToProcess = [];

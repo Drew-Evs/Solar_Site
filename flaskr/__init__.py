@@ -60,3 +60,4 @@ def clear_uploads_folder(app):
                     os.unlink(file_path)
             except Exception as e:
                 print(f'Failed to delete {file_path} due to {e}')
+

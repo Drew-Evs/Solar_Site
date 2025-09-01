@@ -132,7 +132,7 @@ def build_string():
 
     try:
         _instance = String(panel_name=panel_name, num_panels=panel_count, left_top_point=(x,y), rotation=rotation)
-        max_power, vmp, imp = _instance._model_power((100, 45), (1000, 45))
+        max_power, vmp, imp = _instance._model_power(shaded=(100, 45), unshaded=(1000, 45), time=datetime.now())
         print(f'Max power is {max_power} and panel count is {panel_count} so per panel {max_power/panel_count}')
         print(f'Vmp is {vmp} and Imp is {imp}')
         max_power = max_power/panel_count
@@ -148,6 +148,14 @@ def build_string():
 def time_power_model():
     try:
         global _instance
+
+        # Create the full path inside csv_outputs
+        root_csv_dir = "csv_outputs"
+        folder_name = "Windmill_output_csv"
+        full_path = os.path.join(root_csv_dir, folder_name)
+
+        # Create both csv_outputs and Windmill_output_csv inside it
+        os.makedirs(full_path, exist_ok=True)
 
         #pull results from the page
         data = request.args if request.method == 'GET' else request.form
@@ -290,7 +298,7 @@ def generate(_instance, timestep, p_filename, start_date, end_date,
                     continue
                 
                 try:    
-                    Pmax, Vmp, Imp = local_instance._model_power((shaded_irr, shaded_cell_temp), (irr, unshaded_cell_temp))
+                    Pmax, Vmp, Imp = local_instance._model_power((shaded_irr, shaded_cell_temp), (irr, unshaded_cell_temp), time, output_csv=True)
                     
                     data = {
                         'pmax': hp._round_sf(float(Pmax)) if Pmax is not None else 0.0,
@@ -312,7 +320,7 @@ def generate(_instance, timestep, p_filename, start_date, end_date,
                     with open("output_text.log", "a") as f:
                         f.write(f'{str_out}\n')
 
-                    Pmax, Vmp, Imp = _instance._model_power((100, shaded_cell_temp), (irr, unshaded_cell_temp))
+                    Pmax, Vmp, Imp = _instance._model_power((100, shaded_cell_temp), (irr, unshaded_cell_temp), time)
                     str_out = f'{time_str}|{Pmax/1000}|{Vmp}|{Imp}|{irr}|{temp}'
 
                     with open("unshaded_output.log", "a") as f:
@@ -374,7 +382,7 @@ def generate(_instance, timestep, p_filename, start_date, end_date,
                     'type': 'graphs_ready',
                     'graphs': result['paths'],
                     'shadedPower': result['shadedPower'],
-                    'unshadedPower': result['unshadedPower']
+                    'unshadedPower': result['unshadedPower'],
                 }
                 yield f"data: {json.dumps(graph_data)}\n\n"
             else:
