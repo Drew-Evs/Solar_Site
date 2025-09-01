@@ -470,8 +470,11 @@ def draw_graph(start_date, end_date, lat, lon, panel_name, timestep):
             u_results[1].append(float(divided_res[2]))
             u_results[2].append(float(divided_res[3]))
 
-    output_dir = f'flaskr/static/powertimes/{panel_name}/{lat}{lon}/{start_date}'
-    web_dir = f'static/powertimes/{panel_name}/{lat}{lon}/{start_date}'
+    safe_start_date = start_date.strftime("%Y-%m-%d_%H-%M-%S")
+    safe_end_date = end_date.strftime("%Y-%m-%d_%H-%M-%S")
+
+    output_dir = f'flaskr/static/powertimes/{panel_name}/{lat}{lon}/{safe_start_date}'
+    web_dir = f'static/powertimes/{panel_name}/{lat}{lon}/{safe_start_date}'
     # Delete the entire directory if it exists
     if os.path.exists(output_dir):
         shutil.rmtree(output_dir)
@@ -500,8 +503,8 @@ def draw_graph(start_date, end_date, lat, lon, panel_name, timestep):
     plt.legend()
     plt.tight_layout()
 
-    power_vs_time_path = os.path.join(output_dir, f'{start_date}_{end_date}_{unique_id}P.png')
-    web_path = os.path.join(web_dir, f'{start_date}_{end_date}_{unique_id}P.png')
+    power_vs_time_path = os.path.join(output_dir, f'{safe_start_date}_{safe_end_date}_{unique_id}P.png')
+    web_path = os.path.join(web_dir, f'{safe_start_date}_{safe_end_date}_{unique_id}P.png')
     plt.savefig(power_vs_time_path)
     plt.close()
     plot_paths.append(web_path)
@@ -521,8 +524,8 @@ def draw_graph(start_date, end_date, lat, lon, panel_name, timestep):
     plt.legend()
     plt.tight_layout()
 
-    voltage_vs_time_path = os.path.join(output_dir, f'{start_date}_{end_date}_{unique_id}V.png')
-    web_path = os.path.join(web_dir, f'{start_date}_{end_date}_{unique_id}V.png')
+    voltage_vs_time_path = os.path.join(output_dir, f'{safe_start_date}_{safe_end_date}_{unique_id}V.png')
+    web_path = os.path.join(web_dir, f'{safe_start_date}_{safe_end_date}_{unique_id}V.png')
     plt.savefig(voltage_vs_time_path)
     plt.close()
     plot_paths.append(web_path)
@@ -542,8 +545,8 @@ def draw_graph(start_date, end_date, lat, lon, panel_name, timestep):
     plt.legend()
     plt.tight_layout()
 
-    current_vs_time_path = os.path.join(output_dir, f'{start_date}_{end_date}_{unique_id}I.png')
-    web_path = os.path.join(web_dir, f'{start_date}_{end_date}_{unique_id}I.png')
+    current_vs_time_path = os.path.join(output_dir, f'{safe_start_date}_{safe_end_date}_{unique_id}I.png')
+    web_path = os.path.join(web_dir, f'{safe_start_date}_{safe_end_date}_{unique_id}I.png')
     plt.savefig(current_vs_time_path)
     plt.close()
     plot_paths.append(web_path)
@@ -552,7 +555,6 @@ def draw_graph(start_date, end_date, lat, lon, panel_name, timestep):
     shaded_output = hp._round_sf(hp._khw_output(timestep, results[0]))
     unshaded_output = hp._round_sf(hp._khw_output(timestep, u_results[0]))
     
-
     return plot_paths, shaded_output, unshaded_output
 
 # Print memory and CPU usage

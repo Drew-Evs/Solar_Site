@@ -425,9 +425,13 @@ function updateRealTimeData(data) {
 function displayGraphs(graphPaths, shadedPower, unshadedPower) {
     let graphContainer = document.getElementById('graph-container');
     let graphGrid = document.getElementById('graph-grid');
-    let powerInfoDiv = document.createElement('div');
-    powerInfoDiv.innerHTML = ''
-    graphContainer.innerHTML = '';
+    let powerInfoDiv = document.getElementById('power-info-div');
+
+    if (!powerInfoDiv) {
+        powerInfoDiv = document.createElement('div');
+        powerInfoDiv.id = 'power-info-div';
+    }
+    powerInfoDiv.innerHTML = '';
     graphGrid.innerHTML = '';
     
     let pathToProcess = [];
