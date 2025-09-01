@@ -232,7 +232,7 @@ class String():
 
         #save to folder
         folder_name = f"{site_name}_output_csv"
-        file_name = f"{site_name}_{time.strftime('%Y:%m:%d_%H:%M')}.csv"
+        file_name = f"{site_name}_{time.strftime('%Y_%m_%d_%H_%M')}.csv"
         full_path = os.path.join("csv_outputs", folder_name, file_name)
         df.to_csv(full_path, index=False)
 
