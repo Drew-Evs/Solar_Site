@@ -176,21 +176,20 @@ def _file_pixel_dict(filename, start_date, end_date, timestep):
     pixel_dict = {}
     time = start_date
 
-    duration_frame = pd.read_csv(filename, parse_dates=["Shadow Start Timestamp", "Shadow End Timestamp"], dayfirst=True)
+    duration_frame = pd.read_csv(filename, parse_dates=["First Shadow Timestamp", "Last Shadow Timestamp"], dayfirst=True)
 
     while time <= end_date:
         try:
             in_range = duration_frame[
-                (duration_frame["Shadow Start Timestamp"] <= time) &
-                (duration_frame["Shadow End Timestamp"] >= time)
+                (duration_frame["First Shadow Timestamp"] <= time) &
+                (duration_frame["Last Shadow Timestamp"] >= time)
             ]
             pixel_x = in_range['Pixel X'].values
             pixel_y = in_range['Pixel Y'].values
-            irr_drop = in_range['Average Power Blocked (W/m²)'].values
 
             pixel_arr = [_pixel_to_key(x, y) for x, y in zip(pixel_x, pixel_y)] if not in_range.empty else []
 
-            pixel_dict[datetime.strftime(time, d_format)] = (pixel_arr, irr_drop)
+            pixel_dict[datetime.strftime(time, d_format)] = pixel_arr
 
             time += timestep
         except Exception as e:
@@ -288,6 +287,17 @@ def _get_irr(start_date, end_date, lat, lon, timestep,
         albedo=0.2
     )
 
+    shaded_poa = pvlib.irradiance.get_total_irradiance(
+        surface_tilt=surface_tilt,
+        surface_azimuth=surface_azimuth,
+        dni=0,       # no direct sunlight
+        ghi=ghi,
+        dhi=dhi,
+        solar_zenith=solpos['apparent_zenith'],
+        solar_azimuth=solpos['azimuth'],
+        albedo=0.2
+    )
+
     #get the high and low temperature 
     month = start_date.strftime('%m')
     t_high, t_low = _get_avg_temp(lat, lon, month)
@@ -312,7 +322,8 @@ def _get_irr(start_date, end_date, lat, lon, timestep,
     ambient_temp = pd.Series(temps, index=times)
     df = pd.DataFrame({
         'irr': poa['poa_global'],
-        'temp': ambient_temp
+        'temp': ambient_temp,
+        'shaded_irr': shaded_poa['poa_global']
     }, index=times)
 
     return df
@@ -326,17 +337,12 @@ def _get_irr(start_date, end_date, lat, lon, timestep,
 def _set_shade_at_time(time, panel_dict, file_dict, string):
     time_str = time.strftime('%d/%m/%Y %H:%M:%S')
     try:
-        out_drop = None
-        pixels, irr_drop = file_dict.get(time_str, ([],[]))
-        if hasattr(irr_drop, "size") and irr_drop.size > 0:
-            out_drop = irr_drop[0]
-        for pixel, drop in zip(pixels, irr_drop):
+        pixels = file_dict.get(time_str, ([],[]))
+        for pixel in pixels:
             cells = panel_dict.get(pixel, [])
         
             for cell in cells:
                 cell._set_shade(True)
-
-        return out_drop
 
     except Exception as e:
         print(f"Failed to set shaded due to {e}")

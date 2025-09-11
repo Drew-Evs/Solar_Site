@@ -264,14 +264,11 @@ def generate(_instance, timestep, p_filename, start_date, end_date,
                 try:
                     irr = row['irr']
                     temp = row['temp']
+                    shaded_irr = row['shaded_irr']
 
                     _instance.reset_shade()
                     local_instance.reset_shade()
-                    irr_drop = hp._set_shade_at_time(time, panel_dict, pixel_dict, local_instance)
-                    if irr_drop is not None:
-                        shaded_irr = irr-irr_drop
-                    else:
-                        shaded_irr = 100
+                    hp._set_shade_at_time(time, panel_dict, pixel_dict, local_instance)
 
                     #get the average cell temp given shaded/unshaded
                     unshaded_cell_temp = hp._estimate_temp(temp, noct, irr)
